@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>打印预览 · PrintKit</title>
+    <link rel="stylesheet" href="preview.css" />
+  </head>
+  <body>
+    <header class="toolbar no-print">
+      <div class="brand">PrintKit 预览</div>
+      <div class="controls">
+        <label>
+          纸张
+          <select id="paperName">
+            <option value="A4">A4</option>
+            <option value="A3">A3</option>
+            <option value="A5">A5</option>
+            <option value="B5">B5</option>
+            <option value="Letter">Letter</option>
+            <option value="Legal">Legal</option>
+          </select>
+        </label>
+        <label>
+          方向
+          <select id="orientation">
+            <option value="1">纵向</option>
+            <option value="2">横向</option>
+          </select>
+        </label>
+        <label>
+          份数
+          <input id="copies" type="number" min="1" max="99" value="1" />
+        </label>
+        <label>
+          边距(mm)
+          <span class="margins">
+            <input id="marginTop" type="number" title="上" value="10" />
+            <input id="marginRight" type="number" title="右" value="10" />
+            <input id="marginBottom" type="number" title="下" value="10" />
+            <input id="marginLeft" type="number" title="左" value="10" />
+          </span>
+        </label>
+        <button id="btnPrint" class="primary" type="button">打印...</button>
+        <button id="btnClose" type="button">关闭</button>
+      </div>
+    </header>
+
+    <main id="stage" class="stage" aria-live="polite"></main>
+    <div id="status" class="status no-print">加载中…</div>
+
+    <script type="module" src="preview.js"></script>
+  </body>
+</html>

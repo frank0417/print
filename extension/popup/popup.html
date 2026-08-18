@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PrintKit</title>
+    <style>
+      :root {
+        --ink: #1a1f2c;
+        --muted: #5b6475;
+        --line: #d7dde8;
+        --accent: #1f4fd6;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        width: 300px;
+        padding: 14px;
+        font: 13px/1.45 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: var(--ink);
+        background: #fff;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 16px;
+      }
+      p {
+        margin: 0 0 12px;
+        color: var(--muted);
+      }
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: #f7f8fb;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+      }
+      a {
+        color: var(--accent);
+      }
+      .ver {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>PrintKit</h1>
+    <p>对齐 jatoolsPrinter 的 Chrome 网页打印扩展。</p>
+    <div class="card">
+      页面中可直接调用：
+      <div><code>jatoolsPrinter.printPreview(myDoc)</code></div>
+      <div><code>jatoolsPrinter.print(myDoc, true)</code></div>
+    </div>
+    <p class="ver">版本 0.1.0 · 打开本地 demo 页体验</p>
+  </body>
+</html>
