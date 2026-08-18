@@ -16,7 +16,7 @@
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        width: 320px;
+        width: 340px;
         padding: 14px;
         font: 13px/1.45 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
         color: var(--ink);
@@ -49,31 +49,24 @@
         font-size: 11.5px;
       }
       .ver { color: var(--muted); font-size: 12px; }
-      button {
+      .ver a { color: var(--accent); }
+      button, a.link-btn {
         border: 1px solid var(--line);
         background: #fff;
         border-radius: 8px;
         padding: 6px 10px;
         cursor: pointer;
         font: inherit;
+        color: var(--ink);
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
       }
-      button.primary {
+      button.primary, a.link-btn.primary {
         background: var(--accent);
         border-color: var(--accent);
         color: #fff;
       }
-      a.link-btn {
-        display: inline-flex;
-        align-items: center;
-        height: 30px;
-        padding: 0 10px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        color: var(--ink);
-        text-decoration: none;
-        background: #fff;
-      }
-      #installHint a { color: inherit; font-weight: 600; }
       .btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
       #detail { margin-top: 6px; color: var(--muted); font-size: 12px; word-break: break-all; }
       #installHint {
@@ -86,11 +79,12 @@
         font-size: 12px;
       }
       #installHint.show { display: block; }
+      #installHint a { color: inherit; font-weight: 600; }
     </style>
   </head>
   <body>
     <h1>PrintKit</h1>
-    <p>对齐 jatoolsPrinter · 支持本地打印代理</p>
+    <p>对齐 jatoolsPrinter · 一体化本地打印安装包</p>
 
     <div class="card">
       <div class="row">
@@ -99,18 +93,31 @@
       </div>
       <div id="detail"></div>
       <div id="installHint">
-        未安装本地代理时，静默打印会弹出安装说明。<br />
-        下载：
-        <a href="https://github.com/frank0417/print/archive/refs/heads/main.zip" target="_blank" rel="noopener">项目 ZIP</a>
+        请下载一体化安装包（内含 Node + 代理 + 扩展）：<br />
+        <a
+          href="https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-windows.zip"
+          target="_blank"
+          rel="noopener"
+          >Windows</a
+        >
         ·
-        <a href="https://nodejs.org/zh-cn/download" target="_blank" rel="noopener">Node.js</a>
-        ·
-        <a href="https://www.columbia.edu/~em36/pdftoprinter.html" target="_blank" rel="noopener">PDFtoPrinter</a>
+        <a
+          href="https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-macos.zip"
+          target="_blank"
+          rel="noopener"
+          >macOS</a
+        >
       </div>
       <div class="btns">
         <button type="button" id="refresh">重新检测</button>
         <button type="button" id="openGuide" class="primary">安装说明</button>
-        <a class="link-btn" href="https://github.com/frank0417/print" target="_blank" rel="noopener">GitHub</a>
+        <a
+          class="link-btn"
+          href="https://github.com/frank0417/print/releases/latest"
+          target="_blank"
+          rel="noopener"
+          >下载安装包</a
+        >
       </div>
     </div>
 
@@ -120,7 +127,7 @@
       <div><code>getPrinters()</code> → 系统打印机列表</div>
     </div>
 
-    <p class="ver">扩展 0.2.2 · <a href="https://github.com/frank0417/print" target="_blank" rel="noopener">下载与文档</a></p>
+    <p class="ver">扩展 0.3.0 · <a href="https://github.com/frank0417/print/releases" target="_blank" rel="noopener">Releases</a></p>
     <script src="popup.js"></script>
   </body>
 </html>

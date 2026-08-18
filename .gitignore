@@ -8,3 +8,6 @@ native-host/printkit-host
 native-host/printkit-host.cmd
 native-host/com.printkit.host.json
 *.log
+dist/
+dist/.stage/
+/tmp/printkit-build-cache/

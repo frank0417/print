@@ -152,8 +152,8 @@ async function openInstallGuide({ reason, jobId } = {}) {
   const win = await chrome.windows.create({
     url,
     type: 'popup',
-    width: 760,
-    height: 720,
+    width: 780,
+    height: 860,
     focused: true,
   });
 

@@ -1,7 +1,7 @@
 # PrintKit · Chrome 打印扩展（对齐 jatoolsPrinter）
 
 用 Chrome 扩展实现网页精确打印，API 对齐经典 **jatoolsPrinter / JCP**。  
-v0.2 起支持 **Windows / macOS 本地打印代理（Native Messaging）**，可静默打印到指定打印机。
+支持 **Windows / macOS 一体化安装包**（内置 Node 运行时 + 打印代理 + 扩展；Windows 另含 PDFtoPrinter）。
 
 ## 功能
 
@@ -20,51 +20,47 @@ v0.2 起支持 **Windows / macOS 本地打印代理（Native Messaging）**，�
 
 ```
 extension/       Chrome 扩展（Manifest V3）
-native-host/     Windows / macOS Native Messaging 打印代理
+native-host/     Native Messaging 打印代理源码
+installer/       一体化安装包构建脚本与 Win/Mac 安装程序
 demo/            演示页
+dist/            构建产物（gitignore）
 ```
 
-## 快速开始
+## 快速开始（推荐：一体化安装包）
 
-### 1. 安装扩展
-
-1. Chrome → `chrome://extensions` → 开启开发者模式  
-2. 「加载已解压的扩展程序」→ 选择 `extension/`  
-3. 确认扩展 ID 为 `memmopnlapcegennpipheiadaonehljd`（manifest 已内置 `key`）
-
-### 2. 安装本地打印代理
-
-**下载地址**
-
-| 资源 | 地址 |
+| 系统 | 下载 |
 | --- | --- |
-| 项目源码 | https://github.com/frank0417/print |
-| 项目 ZIP | https://github.com/frank0417/print/archive/refs/heads/main.zip |
-| Node.js ≥ 18 | https://nodejs.org/ （[中文页](https://nodejs.org/zh-cn/download)） |
-| Chrome | https://www.google.com/chrome/ |
-| Edge | https://www.microsoft.com/edge |
-| PDFtoPrinter（Win 推荐） | https://www.columbia.edu/~em36/pdftoprinter.html |
-| SumatraPDF（Win 备选） | https://www.sumatrapdfreader.org/download-free-pdf-viewer |
+| Windows | https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-windows.zip |
+| macOS | https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-macos.zip |
+| Releases | https://github.com/frank0417/print/releases |
 
-**macOS**
+**Windows**：解压 → 双击 `Install-PrintKit.bat` → 在 `chrome://extensions` 加载 `%LOCALAPPDATA%\PrintKit\extension`  
+
+**macOS**：解压 → 运行 `Install-PrintKit.command` → 加载 `~/Library/Application Support/PrintKit/extension`  
+
+扩展 ID 须为：`memmopnlapcegennpipheiadaonehljd`
+
+本地构建安装包：
 
 ```bash
-cd native-host
-./scripts/install-mac.sh
+./installer/build.sh
+# 产物: dist/PrintKit-Setup-windows.zip / PrintKit-Setup-macos.zip
 ```
 
-**Windows**
+未安装代理时，扩展会弹出安装说明（含上述下载链接）。
 
-```powershell
-cd native-host
-powershell -ExecutionPolicy Bypass -File .\scripts\install-win.ps1
+### 开发者：从源码分别安装
+
+1. Chrome 加载仓库中的 `extension/`
+2. 安装 `native-host`（需本机 Node ≥ 18）：
+
+```bash
+# macOS
+./native-host/scripts/install-mac.sh
+
+# Windows
+powershell -ExecutionPolicy Bypass -File .\native-host\scripts\install-win.ps1
 ```
-
-需要本机已安装 **Node.js ≥ 18**，以及 **Chrome 或 Edge**（用于 HTML→PDF）。
-
-Windows 静默打印建议再把 `PDFtoPrinter.exe` 放到 `native-host/bin/`（详见 `native-host/README.md`）。
-
-未安装代理时，扩展会弹出安装说明窗口（含上述下载链接）。
 
 自检：
 
@@ -73,15 +69,13 @@ node native-host/host.js --cli ping
 node native-host/host.js --cli getPrinters
 ```
 
-扩展弹窗也会显示「本地代理」连接状态。
-
-### 3. 打开 Demo
+### 打开 Demo
 
 ```bash
 cd demo && python3 -m http.server 5173
 ```
 
-访问 `http://127.0.0.1:5173/` 。
+浏览器打开 `http://127.0.0.1:5173/` 。
 
 ## 业务页接入
 
@@ -128,12 +122,12 @@ cd demo && python3 -m http.server 5173
         → macOS: lp / Windows: PDFtoPrinter 或 PrintTo
 ```
 
-未安装代理时，`print(myDoc, false)` / `getPrinters()` 会**弹出安装说明窗口**（不再静默回退）。安装说明页提供 macOS / Windows 脚本，并可「重新检测」或「改用预览打印」。
+未安装代理时，`print(myDoc, false)` / `getPrinters()` 会**弹出安装说明窗口**（含一体化安装包下载地址）。安装说明页可「重新检测」或「改用预览打印」。
 
 ## 与官方 JCP 的差异
 
 - 代理基于 Node + 系统打印，而非 JCP 闭源客户端  
-- Windows 完美静默推荐配合 `PDFtoPrinter.exe`  
+- Windows 完美静默已在一体化安装包中附带 `PDFtoPrinter.exe`  
 - 复杂跨域 CSS 可能需内联样式以保证 PDF 一致  
 
 ## License

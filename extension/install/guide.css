@@ -101,9 +101,16 @@ header p,
   text-decoration: underline;
 }
 
-.sep {
-  margin: 0 4px;
-  color: #98a2b3;
+.link-list .sub {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.steps .sub {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12.5px;
 }
 
 .note {
