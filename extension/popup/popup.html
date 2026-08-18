@@ -57,7 +57,23 @@
         cursor: pointer;
         font: inherit;
       }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      .btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
       #detail { margin-top: 6px; color: var(--muted); font-size: 12px; word-break: break-all; }
+      #installHint {
+        display: none;
+        margin-top: 8px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: #fff6e8;
+        color: #9a5b00;
+        font-size: 12px;
+      }
+      #installHint.show { display: block; }
     </style>
   </head>
   <body>
@@ -70,8 +86,13 @@
         <span><i id="dot" class="dot"></i> <strong id="status">检测中…</strong></span>
       </div>
       <div id="detail"></div>
-      <div style="margin-top:8px">
+      <div id="installHint">
+        未安装本地代理时，静默打印会弹出安装说明。请先运行
+        <code>native-host/scripts</code> 下的安装脚本。
+      </div>
+      <div class="btns">
         <button type="button" id="refresh">重新检测</button>
+        <button type="button" id="openGuide" class="primary">安装说明</button>
       </div>
     </div>
 
@@ -81,7 +102,7 @@
       <div><code>getPrinters()</code> → 系统打印机列表</div>
     </div>
 
-    <p class="ver">扩展 0.2.0 · 安装见 native-host/scripts</p>
+    <p class="ver">扩展 0.2.1 · 安装见 native-host/scripts</p>
     <script src="popup.js"></script>
   </body>
 </html>

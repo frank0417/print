@@ -135,6 +135,19 @@
 
     try {
       const result = await callExtension('PRINT_JOB', payload);
+      if (result && result.ok === false) {
+        const err = new Error(result.error || '打印失败');
+        err.code = result.code;
+        err.result = result;
+        if (typeof myDoc.done === 'function') {
+          try {
+            myDoc.done(err, result);
+          } catch (_) {
+            /* ignore */
+          }
+        }
+        throw err;
+      }
       if (typeof myDoc.done === 'function') {
         try {
           myDoc.done(null, result);
@@ -144,7 +157,7 @@
       }
       return result;
     } catch (err) {
-      if (typeof myDoc.done === 'function') {
+      if (typeof myDoc.done === 'function' && !err.result) {
         try {
           myDoc.done(err);
         } catch (_) {
@@ -166,21 +179,38 @@
      * @param {object} myDoc
      * @param {boolean} [showDialog=true]
      *   true  → 打开预览并调系统打印对话框
-     *   false → 优先走本地代理静默打印（settings.printer 可指定打印机）；
-     *           未安装代理时回退到预览自动打印
+     *   false → 本地代理静默打印；未安装时弹出安装说明（不自动回退）
      */
     print(myDoc, showDialog = true) {
       return runPrint(myDoc, 'print', showDialog !== false);
     },
 
-    /** 列出本机打印机（需安装 native-host） */
-    async getPrinters() {
-      return callExtension('GET_PRINTERS', {});
+    /** 列出本机打印机（需安装 native-host；未安装会提示） */
+    async getPrinters(options = {}) {
+      const result = await callExtension('GET_PRINTERS', {});
+      // bridge may return array (legacy) or object
+      if (Array.isArray(result)) return result;
+      if (result?.hostAvailable === false) {
+        if (options.promptInstall !== false) {
+          await callExtension('OPEN_INSTALL_GUIDE', {
+            reason: result.error || '获取打印机需要先安装本地打印代理',
+          }).catch(() => {});
+        }
+        const err = new Error(result.error || '本地打印代理未安装');
+        err.code = result.code || 'HOST_NOT_INSTALLED';
+        err.printers = [];
+        throw err;
+      }
+      return result?.printers || [];
     },
 
     async getDefaultPrinter() {
-      const list = await api.getPrinters();
-      return list?.find((p) => p.isDefault) || list?.[0] || null;
+      try {
+        const list = await api.getPrinters({ promptInstall: false });
+        return list?.find((p) => p.isDefault) || list?.[0] || null;
+      } catch (_) {
+        return null;
+      }
     },
 
     /** 探测本地打印代理是否可用 */
@@ -188,11 +218,18 @@
       return callExtension('GET_HOST_STATUS', {});
     },
 
+    /** 打开安装说明窗口 */
+    async openInstallGuide(reason) {
+      return callExtension('OPEN_INSTALL_GUIDE', {
+        reason: reason || '请安装 PrintKit 本地打印代理',
+      });
+    },
+
     isInstalled() {
       return true;
     },
 
-    version: '0.2.0',
+    version: '0.2.1',
   };
 
   // Classic global

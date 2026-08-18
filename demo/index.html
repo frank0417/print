@@ -199,7 +199,7 @@
           const host = await api.getHostStatus().catch(() => ({ available: false }));
           const hostText = host.available
             ? `本地代理已连接 (v${host.version || '?'} · ${host.platform || ''})`
-            : `本地代理未安装（静默打印将回退预览）。${host.error || ''}`;
+            : `本地代理未安装 — 静默打印会弹出安装说明。${host.error || ''}`;
           document.getElementById('status').textContent =
             `PrintKit 已就绪。${hostText}`;
           await refreshPrinters();
@@ -212,15 +212,22 @@
         const api = await waitReady();
         const select = document.getElementById('printerSelect');
         const current = select.value;
-        const printers = await api.getPrinters();
         select.innerHTML = '<option value="">默认打印机</option>';
-        for (const p of printers || []) {
+        try {
+          const printers = await api.getPrinters({ promptInstall: false });
+          for (const p of printers || []) {
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            opt.textContent = p.isDefault ? `${p.name}（默认）` : p.name;
+            select.appendChild(opt);
+          }
+          if (current) select.value = current;
+        } catch (err) {
           const opt = document.createElement('option');
-          opt.value = p.name;
-          opt.textContent = p.isDefault ? `${p.name}（默认）` : p.name;
+          opt.value = '';
+          opt.textContent = '（需先安装本地代理）';
           select.appendChild(opt);
         }
-        if (current) select.value = current;
       }
 
       async function doPrint(how) {
@@ -240,23 +247,30 @@
             printer,
           },
           done(err, result) {
-            if (err) console.error(err);
+            if (err) console.warn(err, result);
             else console.log('print done', result);
           },
         };
 
-        if (how === 'preview') {
-          await api.printPreview(myDoc);
-        } else if (how === 'dialog') {
-          await api.print(myDoc, true);
-        } else {
-          const result = await api.print(myDoc, false);
-          if (result?.mode === 'native-silent') {
+        try {
+          if (how === 'preview') {
+            await api.printPreview(myDoc);
+          } else if (how === 'dialog') {
+            await api.print(myDoc, true);
+          } else {
+            const result = await api.print(myDoc, false);
+            if (result?.mode === 'native-silent') {
+              document.getElementById('status').textContent =
+                `静默打印成功 → ${result.printer || '默认'}（${result.method || 'native'}）`;
+            }
+          }
+        } catch (err) {
+          if (err.code === 'HOST_NOT_INSTALLED' || err.result?.installGuide) {
             document.getElementById('status').textContent =
-              `静默打印成功 → ${result.printer || '默认'}（${result.method || 'native'}）`;
-          } else if (result?.nativeFallbackError) {
+              '未安装本地代理，已打开安装说明窗口。';
+          } else {
             document.getElementById('status').textContent =
-              `代理不可用，已回退预览：${result.nativeFallbackError}`;
+              err.message || String(err);
           }
         }
       }

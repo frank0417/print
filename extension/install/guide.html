@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>安装本地打印代理 · PrintKit</title>
+    <link rel="stylesheet" href="guide.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header>
+        <div class="badge">需要安装</div>
+        <h1>本地打印代理未安装</h1>
+        <p id="reason">
+          静默打印、枚举打印机需要安装 PrintKit Native Host（Windows / macOS）。
+        </p>
+      </header>
+
+      <section class="steps">
+        <h2>安装步骤</h2>
+        <ol>
+          <li>确认已安装 <strong>Node.js ≥ 18</strong> 与 <strong>Chrome / Edge</strong></li>
+          <li>打开本仓库中的 <code>native-host</code> 目录</li>
+          <li>按系统执行安装脚本：</li>
+        </ol>
+
+        <div class="os-grid">
+          <article>
+            <h3>macOS</h3>
+            <pre><code>cd native-host
+./scripts/install-mac.sh</code></pre>
+          </article>
+          <article>
+            <h3>Windows</h3>
+            <pre><code>cd native-host
+powershell -ExecutionPolicy Bypass -File .\scripts\install-win.ps1</code></pre>
+          </article>
+        </div>
+
+        <p class="note">
+          安装后扩展 ID 须为 <code>memmopnlapcegennpipheiadaonehljd</code>。
+          Windows 建议将 <code>PDFtoPrinter.exe</code> 放到 <code>native-host/bin/</code>。
+        </p>
+      </section>
+
+      <section class="check">
+        <h2>安装自检</h2>
+        <pre><code>node native-host/host.js --cli ping
+node native-host/host.js --cli getPrinters</code></pre>
+        <div class="status-row">
+          <span><i id="dot" class="dot"></i> <strong id="status">检测中…</strong></span>
+          <span id="detail" class="muted"></span>
+        </div>
+      </section>
+
+      <footer class="actions">
+        <button type="button" id="btnRecheck" class="primary">重新检测</button>
+        <button type="button" id="btnPreview">改用预览打印</button>
+        <button type="button" id="btnClose">关闭</button>
+      </footer>
+    </main>
+    <script src="guide.js"></script>
+  </body>
+</html>

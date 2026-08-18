@@ -29,6 +29,7 @@ $manifestJson = (@{
   allowed_origins = @("chrome-extension://$ExtId/")
 } | ConvertTo-Json)
 
+$manifestPath = Join-Path $Root "$HostName.json"
 # UTF-8 without BOM (Chrome rejects BOM in native host manifests)
 [System.IO.File]::WriteAllText($manifestPath, $manifestJson)
 

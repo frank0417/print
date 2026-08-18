@@ -6,14 +6,33 @@ import { nativeSend, probeNativeHost } from './native.js';
 
 const jobs = new Map();
 
+const HOST_NOT_INSTALLED = 'HOST_NOT_INSTALLED';
+
 function uid() {
   return `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function isHostMissingError(message = '') {
+  const text = String(message || '');
+  return (
+    /Specified native messaging host not found/i.test(text) ||
+    /Access to the specified native messaging host is forbidden/i.test(text) ||
+    /Native host has exited/i.test(text) ||
+    /本地打印代理未安装/i.test(text) ||
+    /无法连接本地打印代理/i.test(text) ||
+    /未安装或未注册/i.test(text)
+  );
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleMessage(message, sender)
     .then(sendResponse)
-    .catch((err) => sendResponse({ error: err.message || String(err) }));
+    .catch((err) =>
+      sendResponse({
+        error: err.message || String(err),
+        code: err.code || undefined,
+      })
+    );
   return true;
 });
 
@@ -24,9 +43,16 @@ async function handleMessage(message, sender) {
     case 'GET_JOB':
       return getJob(message.jobId);
     case 'GET_PRINTERS':
-      return { printers: await listPrinters() };
+      return listPrintersWithStatus();
     case 'GET_HOST_STATUS':
       return probeNativeHost();
+    case 'OPEN_INSTALL_GUIDE':
+      return openInstallGuide({
+        reason: message.reason,
+        jobId: message.jobId,
+      });
+    case 'OPEN_PREVIEW_FOR_JOB':
+      return reopenPreviewForJob(message.jobId, sender);
     case 'CLOSE_PREVIEW':
       if (message.jobId) {
         jobs.delete(message.jobId);
@@ -42,7 +68,7 @@ async function handleMessage(message, sender) {
  * Routing:
  * - mode=preview → always open preview UI
  * - mode=print + showDialog=true → preview UI then system dialog
- * - mode=print + showDialog=false → prefer native silent print; fallback to preview auto-print
+ * - mode=print + showDialog=false → native silent print; if host missing → install guide
  */
 async function createPrintJob(payload, sender) {
   if (!payload?.pages?.length) {
@@ -53,30 +79,106 @@ async function createPrintJob(payload, sender) {
   const forcePreview = payload.forcePreview === true;
 
   if (wantSilent && !forcePreview) {
+    const host = await probeNativeHost();
+    if (!host.available) {
+      return promptInstallHost({
+        payload,
+        sender,
+        reason: host.error || '未检测到本地打印代理 com.printkit.host',
+      });
+    }
+
     try {
-      const result = await silentPrintViaNative(payload);
+      const result = await silentPrintViaNative(payload, host);
       return {
         ok: true,
         mode: 'native-silent',
         ...result,
       };
     } catch (err) {
-      // Fall back to preview auto-print so jobs still succeed without host.
-      console.warn('[PrintKit] native silent print failed, fallback to preview:', err.message);
-      payload = {
-        ...payload,
-        nativeFallbackError: err.message,
-      };
+      if (isHostMissingError(err.message)) {
+        return promptInstallHost({
+          payload,
+          sender,
+          reason: err.message,
+        });
+      }
+      // Host is present but print failed — surface error (no silent fallback)
+      const error = new Error(err.message || '静默打印失败');
+      error.code = 'NATIVE_PRINT_FAILED';
+      throw error;
     }
   }
 
   return openPreviewJob(payload, sender);
 }
 
-async function silentPrintViaNative(payload) {
-  const host = await probeNativeHost();
+async function promptInstallHost({ payload, sender, reason }) {
+  const jobId = uid();
+  const job = {
+    id: jobId,
+    createdAt: Date.now(),
+    tabId: sender?.tab?.id ?? null,
+    frameId: sender?.frameId ?? 0,
+    ...payload,
+    // Ensure preview path works if user clicks "改用预览打印"
+    mode: payload.mode || 'print',
+    showDialog: true,
+  };
+  jobs.set(jobId, job);
+  await persistJob(jobId, job);
+
+  const guide = await openInstallGuide({ reason, jobId });
+
+  return {
+    ok: false,
+    code: HOST_NOT_INSTALLED,
+    error: '本地打印代理未安装，已打开安装说明',
+    reason,
+    jobId,
+    windowId: guide.windowId,
+    installGuide: true,
+  };
+}
+
+async function openInstallGuide({ reason, jobId } = {}) {
+  const qs = new URLSearchParams();
+  if (reason) qs.set('reason', reason);
+  if (jobId) qs.set('jobId', jobId);
+  const url = chrome.runtime.getURL(
+    `install/guide.html${qs.toString() ? `?${qs}` : ''}`
+  );
+
+  const win = await chrome.windows.create({
+    url,
+    type: 'popup',
+    width: 760,
+    height: 720,
+    focused: true,
+  });
+
+  return { ok: true, windowId: win?.id ?? null };
+}
+
+async function reopenPreviewForJob(jobId, sender) {
+  const { job } = await getJob(jobId);
+  return openPreviewJob(
+    {
+      ...job,
+      mode: 'print',
+      showDialog: true,
+      forcePreview: true,
+    },
+    sender
+  );
+}
+
+async function silentPrintViaNative(payload, hostProbe) {
+  const host = hostProbe || (await probeNativeHost());
   if (!host.available) {
-    throw new Error(host.error || '本地打印代理未安装或未注册');
+    const err = new Error(host.error || '本地打印代理未安装或未注册');
+    err.code = HOST_NOT_INSTALLED;
+    throw err;
   }
 
   const res = await nativeSend(
@@ -101,13 +203,14 @@ async function silentPrintViaNative(payload) {
 }
 
 async function openPreviewJob(payload, sender) {
-  const jobId = uid();
+  const jobId = payload.id || uid();
   const job = {
     id: jobId,
     createdAt: Date.now(),
     tabId: sender?.tab?.id ?? null,
     frameId: sender?.frameId ?? 0,
     ...payload,
+    id: jobId,
   };
   jobs.set(jobId, job);
   await persistJob(jobId, job);
@@ -129,7 +232,6 @@ async function openPreviewJob(payload, sender) {
     jobId,
     windowId: win?.id ?? null,
     mode: payload.mode,
-    nativeFallbackError: payload.nativeFallbackError || null,
   };
 }
 
@@ -176,31 +278,36 @@ async function getJob(jobId) {
   return { job };
 }
 
-async function listPrinters() {
-  try {
-    const res = await nativeSend('getPrinters', {}, 15000);
-    if (Array.isArray(res.printers)) {
-      return res.printers.map((p) => ({ ...p, source: p.source || 'native-host' }));
-    }
-  } catch (_) {
-    /* fall through */
+async function listPrintersWithStatus() {
+  const host = await probeNativeHost();
+  if (!host.available) {
+    return {
+      printers: [],
+      hostAvailable: false,
+      code: HOST_NOT_INSTALLED,
+      error: host.error || '本地打印代理未安装',
+    };
   }
 
   try {
-    if (chrome.printing?.getPrinters) {
-      const printers = await chrome.printing.getPrinters();
-      return (printers || []).map((p) => ({
-        name: p.name,
-        id: p.id,
-        description: p.description,
-        isDefault: false,
-        source: 'chrome.printing',
-      }));
+    const res = await nativeSend('getPrinters', {}, 15000);
+    return {
+      printers: Array.isArray(res.printers)
+        ? res.printers.map((p) => ({ ...p, source: p.source || 'native-host' }))
+        : [],
+      hostAvailable: true,
+    };
+  } catch (err) {
+    if (isHostMissingError(err.message)) {
+      return {
+        printers: [],
+        hostAvailable: false,
+        code: HOST_NOT_INSTALLED,
+        error: err.message,
+      };
     }
-  } catch (_) {
-    /* not available */
+    throw err;
   }
-  return [];
 }
 
 setInterval(() => {

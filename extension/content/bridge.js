@@ -55,14 +55,28 @@
 
       if (data.type === 'GET_PRINTERS') {
         const result = await chrome.runtime.sendMessage({ type: 'GET_PRINTERS' });
-        if (result?.error) throw new Error(result.error);
-        reply(true, result?.printers || []);
+        if (result?.error && result.hostAvailable !== false && !result.code) {
+          throw new Error(result.error);
+        }
+        // Pass full object so page can detect HOST_NOT_INSTALLED
+        reply(true, result);
         return;
       }
 
       if (data.type === 'GET_HOST_STATUS') {
         const result = await chrome.runtime.sendMessage({ type: 'GET_HOST_STATUS' });
         if (result?.error && result.available !== false) throw new Error(result.error);
+        reply(true, result);
+        return;
+      }
+
+      if (data.type === 'OPEN_INSTALL_GUIDE') {
+        const result = await chrome.runtime.sendMessage({
+          type: 'OPEN_INSTALL_GUIDE',
+          reason: data.payload?.reason,
+          jobId: data.payload?.jobId,
+        });
+        if (result?.error) throw new Error(result.error);
         reply(true, result);
         return;
       }

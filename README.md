@@ -9,12 +9,10 @@ v0.2 起支持 **Windows / macOS 本地打印代理（Native Messaging）**，�
 | --- | --- | --- |
 | `jatoolsPrinter.printPreview(myDoc)` | ✅ | 打开预览窗 |
 | `jatoolsPrinter.print(myDoc, true)` | ✅ | 预览 + 系统打印对话框 |
-| `jatoolsPrinter.print(myDoc, false)` | ✅ | **优先本地代理静默打印**；未安装则回退预览 |
-| DIV ID 映射分页 `page1`… | ✅ | 支持 `page_div_prefix` |
-| 纸张 / 方向 / 边距 / 份数 | ✅ | `settings` + 预览工具栏 |
+| `jatoolsPrinter.print(myDoc, false)` | ✅ | **本地代理静默打印**；未安装则弹出安装说明 |
 | `settings.printer` | ✅ | 指定打印机名称（需 native-host） |
-| `getPrinters()` | ✅ | 经本地代理枚举系统打印机 |
-| `getHostStatus()` | ✅ | 探测代理是否已安装 |
+| `getPrinters()` | ✅ | 经本地代理枚举；未安装会提示安装 |
+| `getHostStatus()` / `openInstallGuide()` | ✅ | 探测代理 / 打开安装说明 |
 
 ## 目录
 
@@ -114,7 +112,7 @@ cd demo && python3 -m http.server 5173
         → macOS: lp / Windows: PDFtoPrinter 或 PrintTo
 ```
 
-未安装代理时自动回退到预览窗 + `window.print()`，业务调用不会硬失败。
+未安装代理时，`print(myDoc, false)` / `getPrinters()` 会**弹出安装说明窗口**（不再静默回退）。安装说明页提供 macOS / Windows 脚本，并可「重新检测」或「改用预览打印」。
 
 ## 与官方 JCP 的差异
 
