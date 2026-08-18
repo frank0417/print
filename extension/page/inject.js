@@ -25,8 +25,9 @@
     else waiter.reject(new Error(data.error || 'PrintKit error'));
   });
 
-  function callExtension(type, payload) {
+  function callExtension(type, payload, timeoutMs = 15000) {
     const id = `pk_${Date.now()}_${++seq}`;
+    const wait = type === 'PRINT_JOB' ? 180000 : timeoutMs;
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject });
       window.postMessage({ source: SOURCE, id, type, payload }, '*');
@@ -35,7 +36,7 @@
           pending.delete(id);
           reject(new Error('PrintKit: 扩展未响应，请确认已安装并启用 PrintKit 扩展'));
         }
-      }, 15000);
+      }, wait);
     });
   }
 
@@ -163,13 +164,16 @@
     /**
      * 打印（对齐 jatoolsPrinter.print）
      * @param {object} myDoc
-     * @param {boolean} [showDialog=true] true=弹出系统打印对话框；false=直接进入预览并自动调起打印
+     * @param {boolean} [showDialog=true]
+     *   true  → 打开预览并调系统打印对话框
+     *   false → 优先走本地代理静默打印（settings.printer 可指定打印机）；
+     *           未安装代理时回退到预览自动打印
      */
     print(myDoc, showDialog = true) {
       return runPrint(myDoc, 'print', showDialog !== false);
     },
 
-    /** 列出本机打印机（浏览器扩展能力有限，桌面端返回空列表占位） */
+    /** 列出本机打印机（需安装 native-host） */
     async getPrinters() {
       return callExtension('GET_PRINTERS', {});
     },
@@ -179,11 +183,16 @@
       return list?.find((p) => p.isDefault) || list?.[0] || null;
     },
 
+    /** 探测本地打印代理是否可用 */
+    async getHostStatus() {
+      return callExtension('GET_HOST_STATUS', {});
+    },
+
     isInstalled() {
       return true;
     },
 
-    version: '0.1.0',
+    version: '0.2.0',
   };
 
   // Classic global

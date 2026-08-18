@@ -129,9 +129,16 @@
       </div>
 
       <div class="actions">
+        <label style="display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;">
+          打印机
+          <select id="printerSelect" style="min-width:180px;height:32px;border:1px solid var(--line);border-radius:8px;">
+            <option value="">默认打印机</option>
+          </select>
+        </label>
         <button class="primary" type="button" onclick="doPrint('preview')">打印预览...</button>
         <button type="button" onclick="doPrint('dialog')">打印...</button>
-        <button type="button" onclick="doPrint('direct')">直接打印</button>
+        <button type="button" onclick="doPrint('direct')">静默打印（本地代理）</button>
+        <button type="button" onclick="refreshPrinters()">刷新打印机</button>
         <a href="./ticket.html"><button type="button">套打票据示例 →</button></a>
       </div>
 
@@ -188,16 +195,37 @@
       }
 
       waitReady()
-        .then(() => {
+        .then(async (api) => {
+          const host = await api.getHostStatus().catch(() => ({ available: false }));
+          const hostText = host.available
+            ? `本地代理已连接 (v${host.version || '?'} · ${host.platform || ''})`
+            : `本地代理未安装（静默打印将回退预览）。${host.error || ''}`;
           document.getElementById('status').textContent =
-            'PrintKit 已就绪（window.jatoolsPrinter）。可点击上方按钮体验。';
+            `PrintKit 已就绪。${hostText}`;
+          await refreshPrinters();
         })
         .catch((err) => {
           document.getElementById('status').textContent = err.message;
         });
 
+      async function refreshPrinters() {
+        const api = await waitReady();
+        const select = document.getElementById('printerSelect');
+        const current = select.value;
+        const printers = await api.getPrinters();
+        select.innerHTML = '<option value="">默认打印机</option>';
+        for (const p of printers || []) {
+          const opt = document.createElement('option');
+          opt.value = p.name;
+          opt.textContent = p.isDefault ? `${p.name}（默认）` : p.name;
+          select.appendChild(opt);
+        }
+        if (current) select.value = current;
+      }
+
       async function doPrint(how) {
         const api = await waitReady();
+        const printer = document.getElementById('printerSelect').value || undefined;
         const myDoc = {
           documents: document,
           copyrights: 'PrintKit demo',
@@ -209,10 +237,11 @@
             marginBottom: 8,
             marginLeft: 8,
             copies: 1,
+            printer,
           },
-          done(err) {
+          done(err, result) {
             if (err) console.error(err);
-            else console.log('print done');
+            else console.log('print done', result);
           },
         };
 
@@ -221,7 +250,14 @@
         } else if (how === 'dialog') {
           await api.print(myDoc, true);
         } else {
-          await api.print(myDoc, false);
+          const result = await api.print(myDoc, false);
+          if (result?.mode === 'native-silent') {
+            document.getElementById('status').textContent =
+              `静默打印成功 → ${result.printer || '默认'}（${result.method || 'native'}）`;
+          } else if (result?.nativeFallbackError) {
+            document.getElementById('status').textContent =
+              `代理不可用，已回退预览：${result.nativeFallbackError}`;
+          }
         }
       }
     </script>

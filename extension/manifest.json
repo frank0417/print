@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "PrintKit（jatools 兼容打印）",
-  "version": "0.1.0",
-  "description": "Chrome 网页精确打印扩展：对齐 jatoolsPrinter 的 DIV 分页、打印预览与直接打印 API。",
+  "version": "0.2.0",
+  "description": "Chrome 网页精确打印扩展：对齐 jatoolsPrinter，支持 Windows/macOS 本地打印代理静默打印。",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -24,18 +24,37 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/bridge.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/bridge.js"
+      ],
       "run_at": "document_start",
       "all_frames": true
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["page/inject.js", "preview/preview.html", "preview/preview.css", "preview/preview.js"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "page/inject.js",
+        "preview/preview.html",
+        "preview/preview.css",
+        "preview/preview.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ],
-  "permissions": ["storage", "scripting", "tabs"],
-  "host_permissions": ["<all_urls>"]
+  "permissions": [
+    "storage",
+    "scripting",
+    "tabs",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA42zfEkUQUobYH2uLuJ/7v7ECgkL9yIhtUq5qgBliAqtmDZxBa8cmKLCDVwjfZbHPvY0FDxNXJ7mWGKIlwuQDuCE3RQ/fNQasBsXYCZw5aRDHJvz7wSEVFV4cT1TpcankulhU7/rCBMI01HFE2+lUohpNnc8Nt8TjVpbBEl0rFFuLV4lwWi9W3jrcVv/4Wz3oPUg8o3hsNpPDRJ5fk5IcSwG6TgsVeAuzgS7YgtZ26p0WVmwK1X2Gi2GTzNyxiKAesmtf8xvfMTw1aFq6yf2CMvtg5rAuflALdjEdX+KgYRsc63mr/oxR2NcV/nrKEjDx5gT0ahHJzE0fSW2qzpzVvQIDAQAB"
 }

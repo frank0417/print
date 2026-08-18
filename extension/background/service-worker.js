@@ -1,6 +1,8 @@
 /**
- * Background service worker: store print jobs and open preview window.
+ * Background service worker: preview window + Native Messaging silent print.
  */
+
+import { nativeSend, probeNativeHost } from './native.js';
 
 const jobs = new Map();
 
@@ -23,6 +25,8 @@ async function handleMessage(message, sender) {
       return getJob(message.jobId);
     case 'GET_PRINTERS':
       return { printers: await listPrinters() };
+    case 'GET_HOST_STATUS':
+      return probeNativeHost();
     case 'CLOSE_PREVIEW':
       if (message.jobId) {
         jobs.delete(message.jobId);
@@ -34,11 +38,69 @@ async function handleMessage(message, sender) {
   }
 }
 
+/**
+ * Routing:
+ * - mode=preview → always open preview UI
+ * - mode=print + showDialog=true → preview UI then system dialog
+ * - mode=print + showDialog=false → prefer native silent print; fallback to preview auto-print
+ */
 async function createPrintJob(payload, sender) {
   if (!payload?.pages?.length) {
     throw new Error('没有可打印的页面内容');
   }
 
+  const wantSilent = payload.mode === 'print' && payload.showDialog === false;
+  const forcePreview = payload.forcePreview === true;
+
+  if (wantSilent && !forcePreview) {
+    try {
+      const result = await silentPrintViaNative(payload);
+      return {
+        ok: true,
+        mode: 'native-silent',
+        ...result,
+      };
+    } catch (err) {
+      // Fall back to preview auto-print so jobs still succeed without host.
+      console.warn('[PrintKit] native silent print failed, fallback to preview:', err.message);
+      payload = {
+        ...payload,
+        nativeFallbackError: err.message,
+      };
+    }
+  }
+
+  return openPreviewJob(payload, sender);
+}
+
+async function silentPrintViaNative(payload) {
+  const host = await probeNativeHost();
+  if (!host.available) {
+    throw new Error(host.error || '本地打印代理未安装或未注册');
+  }
+
+  const res = await nativeSend(
+    'print',
+    {
+      title: payload.title,
+      pages: payload.pages,
+      stylesheets: payload.stylesheets,
+      settings: payload.settings || {},
+    },
+    180000
+  );
+
+  return {
+    jobId: uid(),
+    printer: res.printer,
+    method: res.method,
+    pdfPath: res.pdfPath,
+    copies: res.copies,
+    hostVersion: host.version,
+  };
+}
+
+async function openPreviewJob(payload, sender) {
   const jobId = uid();
   const job = {
     id: jobId,
@@ -48,8 +110,6 @@ async function createPrintJob(payload, sender) {
     ...payload,
   };
   jobs.set(jobId, job);
-
-  // Persist briefly so preview page can load after service worker sleep.
   await persistJob(jobId, job);
 
   const previewUrl = chrome.runtime.getURL(
@@ -69,6 +129,7 @@ async function createPrintJob(payload, sender) {
     jobId,
     windowId: win?.id ?? null,
     mode: payload.mode,
+    nativeFallbackError: payload.nativeFallbackError || null,
   };
 }
 
@@ -115,11 +176,16 @@ async function getJob(jobId) {
   return { job };
 }
 
-/**
- * Desktop Chrome 无法像 JCP 本地客户端那样枚举系统打印机。
- * ChromeOS 企业策略下可用 chrome.printing；此处做能力探测并优雅降级。
- */
 async function listPrinters() {
+  try {
+    const res = await nativeSend('getPrinters', {}, 15000);
+    if (Array.isArray(res.printers)) {
+      return res.printers.map((p) => ({ ...p, source: p.source || 'native-host' }));
+    }
+  } catch (_) {
+    /* fall through */
+  }
+
   try {
     if (chrome.printing?.getPrinters) {
       const printers = await chrome.printing.getPrinters();
@@ -137,7 +203,6 @@ async function listPrinters() {
   return [];
 }
 
-// Cleanup old jobs periodically
 setInterval(() => {
   const expireBefore = Date.now() - 30 * 60 * 1000;
   for (const [id, job] of jobs.entries()) {

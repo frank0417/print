@@ -1,143 +1,126 @@
 # PrintKit · Chrome 打印扩展（对齐 jatoolsPrinter）
 
-用 Chrome 扩展实现网页精确打印，API 对齐经典 **jatoolsPrinter / JCP** 的常见用法：按 `page1`、`page2`… DIV 分页，支持打印预览与打印对话框。
+用 Chrome 扩展实现网页精确打印，API 对齐经典 **jatoolsPrinter / JCP**。  
+v0.2 起支持 **Windows / macOS 本地打印代理（Native Messaging）**，可静默打印到指定打印机。
 
-> 说明：真正的 jatools/JCP 依赖本地客户端实现静默选打印机、注册表参数等。本项目在 **普通桌面 Chrome** 上通过扩展 + 系统打印对话框实现等价开发体验；完整静默出纸需后续接入 Native Messaging 本地代理（或 ChromeOS `chrome.printing`）。
+## 功能
 
-## 功能（v0.1）
-
-| 能力 | 状态 | 对齐说明 |
+| 能力 | 状态 | 说明 |
 | --- | --- | --- |
 | `jatoolsPrinter.printPreview(myDoc)` | ✅ | 打开预览窗 |
-| `jatoolsPrinter.print(myDoc, true/false)` | ✅ | true=预览后调系统对话框；false=打开预览并自动 `window.print()` |
+| `jatoolsPrinter.print(myDoc, true)` | ✅ | 预览 + 系统打印对话框 |
+| `jatoolsPrinter.print(myDoc, false)` | ✅ | **优先本地代理静默打印**；未安装则回退预览 |
 | DIV ID 映射分页 `page1`… | ✅ | 支持 `page_div_prefix` |
-| 纸张 / 方向 / 边距 / 份数 | ✅ | 预览工具栏可改，写入 `@page` |
-| 打印 HTML 字符串 / 元素数组 | ✅ | `documents` 可为 string / Element[] |
-| `done` 回调 | ✅ | 任务创建成功后触发 |
-| `getJCP()` | ✅ | Promise 风格入口 |
-| `getPrinters()` | ⚠️ | ChromeOS 有 `chrome.printing` 时可用；桌面端返回 `[]` |
-| 本地静默指定打印机 | ❌ | 需 Native Host，后续版本 |
+| 纸张 / 方向 / 边距 / 份数 | ✅ | `settings` + 预览工具栏 |
+| `settings.printer` | ✅ | 指定打印机名称（需 native-host） |
+| `getPrinters()` | ✅ | 经本地代理枚举系统打印机 |
+| `getHostStatus()` | ✅ | 探测代理是否已安装 |
 
 ## 目录
 
 ```
-extension/          Chrome 扩展（Manifest V3）
-  manifest.json
-  background/       任务管理、打开预览窗
-  content/          注入页面桥
-  page/inject.js    页面世界 API（jatoolsPrinter）
-  preview/          打印预览 UI
-  popup/            扩展弹窗说明
-demo/               本地演示页
+extension/       Chrome 扩展（Manifest V3）
+native-host/     Windows / macOS Native Messaging 打印代理
+demo/            演示页
 ```
 
-## 安装扩展
+## 快速开始
 
-1. 打开 Chrome → `chrome://extensions`
-2. 开启「开发者模式」
-3. 「加载已解压的扩展程序」→ 选择本仓库的 `extension/` 目录
-4. （可选）若用 `file://` 打开 demo，请勾选扩展的「允许访问文件网址」
+### 1. 安装扩展
 
-## 运行 Demo
+1. Chrome → `chrome://extensions` → 开启开发者模式  
+2. 「加载已解压的扩展程序」→ 选择 `extension/`  
+3. 确认扩展 ID 为 `memmopnlapcegennpipheiadaonehljd`（manifest 已内置 `key`）
 
-任意静态服务器均可，例如：
+### 2. 安装本地打印代理
+
+**macOS**
 
 ```bash
-cd demo
-python3 -m http.server 5173
+cd native-host
+./scripts/install-mac.sh
 ```
 
-浏览器打开 `http://127.0.0.1:5173/` ，点击「打印预览」。
+**Windows**
 
-## 业务页接入（与 jatools 同写法）
+```powershell
+cd native-host
+powershell -ExecutionPolicy Bypass -File .\scripts\install-win.ps1
+```
 
-安装扩展后，页面会自动注入全局对象，**无需再嵌 ActiveX / 引 cab**。
+需要本机已安装 **Node.js ≥ 18**，以及 **Chrome 或 Edge**（用于 HTML→PDF）。
+
+Windows 静默打印建议再把 `PDFtoPrinter.exe` 放到 `native-host/bin/`（详见 `native-host/README.md`）。
+
+自检：
+
+```bash
+node native-host/host.js --cli ping
+node native-host/host.js --cli getPrinters
+```
+
+扩展弹窗也会显示「本地代理」连接状态。
+
+### 3. 打开 Demo
+
+```bash
+cd demo && python3 -m http.server 5173
+```
+
+访问 `http://127.0.0.1:5173/` 。
+
+## 业务页接入
 
 ```html
-<div id="page1">第一页内容</div>
-<div id="page2">第二页内容</div>
+<div id="page1">第一页</div>
+<div id="page2">第二页</div>
 
 <script>
-  function doPrint(how) {
-    var myDoc = {
+  async function silentPrint() {
+    const printers = await jatoolsPrinter.getPrinters();
+    const myDoc = {
       documents: document,
       copyrights: 'your-company',
       settings: {
-        paperName: 'A4',      // A3/A4/A5/B5/Letter/Legal
-        orientation: 1,       // 1 纵向 / 2 横向
+        paperName: 'A4',
+        orientation: 1,
         marginTop: 10,
         marginRight: 10,
         marginBottom: 10,
         marginLeft: 10,
-        copies: 1
+        copies: 1,
+        printer: printers[0]?.name // 可选；省略则用系统默认打印机
       },
-      done: function (err) {
-        if (err) console.error(err);
+      done(err, result) {
+        console.log(err || result);
       }
     };
 
-    if (how === 'preview') {
-      jatoolsPrinter.printPreview(myDoc);
-    } else if (how === 'dialog') {
-      jatoolsPrinter.print(myDoc, true);
-    } else {
-      jatoolsPrinter.print(myDoc, false);
-    }
+    // false = 静默（走本地代理）
+    await jatoolsPrinter.print(myDoc, false);
   }
 </script>
 ```
 
-### 多文档前缀
+其它入口：`printKit` / `PrintKit` / `getJCP()`。
 
-同一页多套票据时：
-
-```js
-myDoc.page_div_prefix = 'report1'; // 匹配 report1page1, report1page2...
-```
-
-### 新式入口
-
-```js
-getJCP().then((jcp) => jcp.printPreview(myDoc));
-// 或
-printKit.printPreview(myDoc);
-```
-
-## myDoc 字段
-
-| 字段 | 说明 |
-| --- | --- |
-| `documents` | `document` / 某个元素 / HTML 字符串 / 元素或字符串数组 |
-| `copyrights` | 兼容字段（jatools 必填）；本扩展不强制 |
-| `settings` | 纸张、方向、边距、份数等 |
-| `page_div_prefix` | 页 DIV id 前缀 |
-| `done(err, result)` | 回调 |
-| `overlay` | 预览可见的套打底图 HTML（打印时隐藏） |
-
-## 架构
+## 静默打印链路
 
 ```
-业务页面
-  └─ window.jatoolsPrinter (page/inject.js)
-        └─ postMessage → content/bridge.js
-              └─ runtime → background service worker
-                    └─ 打开 preview/preview.html（系统打印）
+页面 print(myDoc, false)
+  → 扩展 background
+    → Native Messaging: com.printkit.host
+      → Chrome/Edge headless: HTML → PDF
+        → macOS: lp / Windows: PDFtoPrinter 或 PrintTo
 ```
 
-## 与官方 JCP 的差异（务必知悉）
+未安装代理时自动回退到预览窗 + `window.print()`，业务调用不会硬失败。
 
-1. **桌面 Chrome 不能直接枚举/指定物理打印机做完全静默打印**（无本地客户端时）。
-2. 预览与出纸依赖浏览器排版 + 系统打印对话框，复杂 CSS（尤其跨域样式表）需自测。
-3. `copies` 会提示用户在系统对话框中确认份数（浏览器限制）。
+## 与官方 JCP 的差异
 
-后续若要完全对齐 JCP 静默能力：扩展 + Native Messaging + 本地打印代理（PDF/HTML → 系统打印队列）。
-
-## 开发计划（建议）
-
-- [ ] Native Messaging 本地打印代理（指定打印机、静默、保留设置）
-- [ ] 预览缩放、页码跳转、指定页打印
-- [ ] 更完善的样式内联（降低跨域 CSS 丢失）
-- [ ] Vue/React 示例与 npm SDK 包
+- 代理基于 Node + 系统打印，而非 JCP 闭源客户端  
+- Windows 完美静默推荐配合 `PDFtoPrinter.exe`  
+- 复杂跨域 CSS 可能需内联样式以保证 PDF 一致  
 
 ## License
 

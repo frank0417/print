@@ -60,6 +60,13 @@
         return;
       }
 
+      if (data.type === 'GET_HOST_STATUS') {
+        const result = await chrome.runtime.sendMessage({ type: 'GET_HOST_STATUS' });
+        if (result?.error && result.available !== false) throw new Error(result.error);
+        reply(true, result);
+        return;
+      }
+
       reply(false, null, new Error(`未知消息类型: ${data.type}`));
     } catch (err) {
       // Extension context invalidated etc.

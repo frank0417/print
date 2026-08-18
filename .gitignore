@@ -4,3 +4,7 @@ node_modules/
 *.pem
 .idea/
 .vscode/
+native-host/printkit-host
+native-host/printkit-host.cmd
+native-host/com.printkit.host.json
+*.log
