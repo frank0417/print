@@ -16,11 +16,60 @@
         </p>
       </header>
 
+      <section class="downloads">
+        <h2>下载地址</h2>
+        <ul class="link-list">
+          <li>
+            <strong>本项目源码 / 代理</strong>
+            <a id="linkRepo" href="https://github.com/frank0417/print" target="_blank" rel="noopener"
+              >github.com/frank0417/print</a
+            >
+            <span class="sep">·</span>
+            <a
+              id="linkZip"
+              href="https://github.com/frank0417/print/archive/refs/heads/main.zip"
+              target="_blank"
+              rel="noopener"
+              >下载 ZIP</a
+            >
+          </li>
+          <li>
+            <strong>Node.js ≥ 18</strong>（必装）
+            <a href="https://nodejs.org/" target="_blank" rel="noopener">nodejs.org</a>
+            <span class="sep">·</span>
+            <a href="https://nodejs.org/zh-cn/download" target="_blank" rel="noopener">中文下载页</a>
+          </li>
+          <li>
+            <strong>Google Chrome</strong>
+            <a href="https://www.google.com/chrome/" target="_blank" rel="noopener">下载 Chrome</a>
+            <span class="sep">·</span>
+            <strong>Microsoft Edge</strong>
+            <a href="https://www.microsoft.com/edge" target="_blank" rel="noopener">下载 Edge</a>
+          </li>
+          <li>
+            <strong>PDFtoPrinter.exe</strong>（Windows 静默打印推荐）
+            <a href="https://www.columbia.edu/~em36/pdftoprinter.html" target="_blank" rel="noopener"
+              >columbia.edu/~em36/pdftoprinter.html</a
+            >
+          </li>
+          <li>
+            <strong>SumatraPDF</strong>（Windows 备选）
+            <a href="https://www.sumatrapdfreader.org/download-free-pdf-viewer" target="_blank" rel="noopener"
+              >sumatrapdfreader.org</a
+            >
+          </li>
+        </ul>
+        <p class="note">
+          下载项目 ZIP 后解压，进入 <code>native-host</code> 目录执行下方安装脚本。 Windows 可将
+          <code>PDFtoPrinter.exe</code> 放到 <code>native-host/bin/</code>。
+        </p>
+      </section>
+
       <section class="steps">
         <h2>安装步骤</h2>
         <ol>
-          <li>确认已安装 <strong>Node.js ≥ 18</strong> 与 <strong>Chrome / Edge</strong></li>
-          <li>打开本仓库中的 <code>native-host</code> 目录</li>
+          <li>安装 <strong>Node.js ≥ 18</strong> 与 <strong>Chrome / Edge</strong>（见上方下载）</li>
+          <li>下载并解压本项目，打开 <code>native-host</code> 目录</li>
           <li>按系统执行安装脚本：</li>
         </ol>
 
@@ -28,6 +77,7 @@
           <article>
             <h3>macOS</h3>
             <pre><code>cd native-host
+chmod +x scripts/install-mac.sh
 ./scripts/install-mac.sh</code></pre>
           </article>
           <article>
@@ -38,8 +88,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-win.ps1</code></pre>
         </div>
 
         <p class="note">
-          安装后扩展 ID 须为 <code>memmopnlapcegennpipheiadaonehljd</code>。
-          Windows 建议将 <code>PDFtoPrinter.exe</code> 放到 <code>native-host/bin/</code>。
+          安装后扩展 ID 须为 <code>memmopnlapcegennpipheiadaonehljd</code>（重新加载已解压的
+          <code>extension/</code>）。
         </p>
       </section>
 
@@ -54,7 +104,11 @@ node native-host/host.js --cli getPrinters</code></pre>
       </section>
 
       <footer class="actions">
-        <button type="button" id="btnRecheck" class="primary">重新检测</button>
+        <a class="btn primary" id="btnDownloadZip" href="https://github.com/frank0417/print/archive/refs/heads/main.zip"
+          >下载项目 ZIP</a
+        >
+        <a class="btn" href="https://nodejs.org/zh-cn/download" target="_blank" rel="noopener">下载 Node.js</a>
+        <button type="button" id="btnRecheck">重新检测</button>
         <button type="button" id="btnPreview">改用预览打印</button>
         <button type="button" id="btnClose">关闭</button>
       </footer>

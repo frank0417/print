@@ -6,6 +6,16 @@
 - HTML → PDF（调用本机 Chrome/Edge 无头）
 - 静默打印到指定打印机（`print`，对应页面 `jatoolsPrinter.print(myDoc, false)`）
 
+## 下载
+
+| 资源 | 地址 |
+| --- | --- |
+| 项目仓库 | https://github.com/frank0417/print |
+| 源码 ZIP | https://github.com/frank0417/print/archive/refs/heads/main.zip |
+| Node.js ≥ 18 | https://nodejs.org/zh-cn/download |
+| PDFtoPrinter（Windows） | https://www.columbia.edu/~em36/pdftoprinter.html |
+| SumatraPDF（Windows） | https://www.sumatrapdfreader.org/download-free-pdf-viewer |
+
 ## 要求
 
 | 项目 | 说明 |

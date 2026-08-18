@@ -67,11 +67,48 @@ header p,
   color: var(--muted);
 }
 
+.downloads,
 .steps,
 .check {
   margin-top: 18px;
   padding-top: 16px;
   border-top: 1px solid var(--line);
+}
+
+.link-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.link-list li {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f7f9fc;
+  line-height: 1.55;
+}
+
+.link-list a {
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.link-list a:hover {
+  text-decoration: underline;
+}
+
+.sep {
+  margin: 0 4px;
+  color: #98a2b3;
+}
+
+.note {
+  margin: 12px 0 0;
+  font-size: 13px;
 }
 
 ol {
@@ -113,8 +150,6 @@ code {
   font-size: 12.5px;
 }
 
-.note { margin: 12px 0 0; font-size: 13px; }
-
 .status-row {
   display: flex;
   flex-wrap: wrap;
@@ -141,9 +176,11 @@ code {
   margin-top: 18px;
   padding-top: 16px;
   border-top: 1px solid var(--line);
+  align-items: center;
 }
 
-button {
+button,
+a.btn {
   height: 36px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -152,9 +189,14 @@ button {
   color: var(--ink);
   font: inherit;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
 }
 
-button.primary {
+button.primary,
+a.btn.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
