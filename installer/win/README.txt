@@ -1,26 +1,25 @@
-PrintKit 一体化安装包（Windows）
-================================
+PrintKit Windows Setup (all-in-one)
+===================================
 
-本包已内置：
-  - PrintKit Chrome 扩展
-  - 本地打印代理（Native Messaging Host）
-  - Node.js 运行时（无需单独安装 Node）
-  - PDFtoPrinter.exe（静默打印）
+Included: Chrome extension, native print host, Node.js runtime, PDFtoPrinter.exe
 
-安装步骤
+Install
+-------
+1. Download PrintKit-Setup-windows.zip from GitHub Releases (do NOT re-zip via WeChat)
+2. Extract to a short path, e.g. C:\PrintKit-Setup-windows
+3. Double-click Install-PrintKit.bat
+4. chrome://extensions -> Developer mode ON -> Load unpacked
+5. Select: %LOCALAPPDATA%\PrintKit\extension
+6. Extension ID must be: memmopnlapcegennpipheiadaonehljd
+
+Download
 --------
-1. 解压本 ZIP 到任意目录
-2. 双击 Install-PrintKit.bat
-3. 在打开的 chrome://extensions 页面：
-   - 开启「开发者模式」
-   - 「加载已解压的扩展程序」
-   - 选择：%LOCALAPPDATA%\PrintKit\extension
-4. 确认扩展 ID 为：memmopnlapcegennpipheiadaonehljd
+https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-windows.zip
 
-卸载
-----
-运行 Uninstall-PrintKit.ps1
+Uninstall
+---------
+Run Uninstall-PrintKit.ps1 in PowerShell
 
-项目主页
---------
-https://github.com/frank0417/print
+If Install-PrintKit.bat shows garbled text or parser errors:
+- Re-download the ZIP from GitHub (WeChat may corrupt .ps1 encoding)
+- Extract again and run Install-PrintKit.bat

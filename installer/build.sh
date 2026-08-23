@@ -46,7 +46,7 @@ prepare_common_app() {
   # Version stamp
   cat > "$app/VERSION.txt" <<EOF
 PrintKit Setup
-version=0.3.0
+version=0.3.1
 node=$NODE_VERSION
 built=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 repo=https://github.com/frank0417/print
