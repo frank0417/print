@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>安装本地打印代理 · PrintKit</title>
+    <link rel="stylesheet" href="guide.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header>
+        <div class="badge">需要安装</div>
+        <h1>请安装 PrintKit 一体化安装包</h1>
+        <p id="reason">
+          静默打印需要本地打印代理。请下载对应系统的一体化安装包（已内置 Node
+          运行时、打印代理、扩展；Windows 另含 PDFtoPrinter）。
+        </p>
+      </header>
+
+      <section class="downloads">
+        <h2>一体化安装包下载</h2>
+        <ul class="link-list">
+          <li>
+            <strong>Windows 安装包</strong>
+            <a
+              id="linkWin"
+              href="https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-windows.zip"
+              target="_blank"
+              rel="noopener"
+              >PrintKit-Setup-windows.zip</a
+            >
+            <div class="sub">解压后双击 <code>Install-PrintKit.bat</code></div>
+          </li>
+          <li>
+            <strong>macOS 安装包</strong>
+            <a
+              id="linkMac"
+              href="https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-macos.zip"
+              target="_blank"
+              rel="noopener"
+              >PrintKit-Setup-macos.zip</a
+            >
+            <div class="sub">解压后运行 <code>Install-PrintKit.command</code></div>
+          </li>
+          <li>
+            <strong>GitHub Releases</strong>
+            <a href="https://github.com/frank0417/print/releases" target="_blank" rel="noopener"
+              >github.com/frank0417/print/releases</a
+            >
+            <span class="sep">·</span>
+            <a href="https://github.com/frank0417/print" target="_blank" rel="noopener">源码仓库</a>
+          </li>
+        </ul>
+        <p class="note">
+          安装包内已包含：Chrome 扩展、Native Host、Node.js 运行时；Windows 另含
+          PDFtoPrinter。安装后只需在 <code>chrome://extensions</code> 加载扩展目录即可。
+        </p>
+      </section>
+
+      <section class="steps">
+        <h2>安装步骤（安装包）</h2>
+        <ol>
+          <li>下载上方对应系统的 ZIP 并解压</li>
+          <li>
+            Windows：双击 <code>Install-PrintKit.bat</code>　／　macOS：运行
+            <code>Install-PrintKit.command</code>
+          </li>
+          <li>
+            在 <code>chrome://extensions</code> 开启开发者模式，加载已解压扩展：
+            <div class="sub">
+              Windows：<code>%LOCALAPPDATA%\PrintKit\extension</code><br />
+              macOS：<code>~/Library/Application Support/PrintKit/extension</code>
+            </div>
+          </li>
+          <li>确认扩展 ID 为 <code>memmopnlapcegennpipheiadaonehljd</code>，然后点下方「重新检测」</li>
+        </ol>
+      </section>
+
+      <section class="check">
+        <h2>安装自检</h2>
+        <div class="status-row">
+          <span><i id="dot" class="dot"></i> <strong id="status">检测中…</strong></span>
+          <span id="detail" class="muted"></span>
+        </div>
+      </section>
+
+      <footer class="actions">
+        <a
+          class="btn primary"
+          id="btnDownloadWin"
+          href="https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-windows.zip"
+          >下载 Windows 包</a
+        >
+        <a
+          class="btn primary"
+          id="btnDownloadMac"
+          href="https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-macos.zip"
+          >下载 macOS 包</a
+        >
+        <button type="button" id="btnRecheck">重新检测</button>
+        <button type="button" id="btnPreview">改用预览打印</button>
+        <button type="button" id="btnClose">关闭</button>
+      </footer>
+    </main>
+    <script src="guide.js"></script>
+  </body>
+</html>

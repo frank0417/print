@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PrintKit Demo · 对齐 jatools</title>
+    <style>
+      :root {
+        --ink: #18212f;
+        --muted: #607089;
+        --line: #d9e0ea;
+        --accent: #1f4fd6;
+        --bg: #f4f6fa;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(900px 420px at 10% -10%, #d9e6ff 0%, transparent 60%),
+          radial-gradient(700px 380px at 100% 0%, #e7f6ef 0%, transparent 55%),
+          var(--bg);
+      }
+      .wrap {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 28px 18px 64px;
+      }
+      header h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+        letter-spacing: 0.01em;
+      }
+      header p {
+        margin: 0 0 20px;
+        color: var(--muted);
+        max-width: 52ch;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 24px;
+      }
+      button {
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--ink);
+        border-radius: 10px;
+        padding: 10px 14px;
+        font: inherit;
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      .hint {
+        margin-bottom: 18px;
+        padding: 12px 14px;
+        border-left: 3px solid var(--accent);
+        background: rgba(255, 255, 255, 0.75);
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .pages {
+        display: grid;
+        gap: 18px;
+      }
+      .page {
+        width: 210mm;
+        min-height: 140mm;
+        max-width: 100%;
+        margin: 0 auto;
+        background: #fff;
+        border: 1px solid var(--line);
+        padding: 18mm 16mm;
+        box-shadow: 0 12px 28px rgba(24, 33, 47, 0.08);
+      }
+      .page h2 {
+        margin: 0 0 8px;
+        font-size: 22px;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 13px;
+        margin-bottom: 16px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+      th, td {
+        border: 1px solid #cfd7e4;
+        padding: 8px 10px;
+        text-align: left;
+      }
+      th { background: #f0f4fa; }
+      .footer {
+        margin-top: 24px;
+        display: flex;
+        justify-content: space-between;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12.5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>PrintKit Demo</h1>
+        <p>
+          用法对齐经典 <strong>jatoolsPrinter</strong>：用连续的
+          <code>page1</code>、<code>page2</code>… DIV 作为打印页，调用
+          <code>printPreview</code> / <code>print</code>。
+        </p>
+      </header>
+
+      <div class="hint" id="status">
+        检测扩展中…请先在 <code>chrome://extensions</code> 加载
+        <code>extension/</code> 目录（开发者模式）。
+      </div>
+
+      <div class="actions">
+        <label style="display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;">
+          打印机
+          <select id="printerSelect" style="min-width:180px;height:32px;border:1px solid var(--line);border-radius:8px;">
+            <option value="">默认打印机</option>
+          </select>
+        </label>
+        <button class="primary" type="button" onclick="doPrint('preview')">打印预览...</button>
+        <button type="button" onclick="doPrint('dialog')">打印...</button>
+        <button type="button" onclick="doPrint('direct')">静默打印（本地代理）</button>
+        <button type="button" onclick="refreshPrinters()">刷新打印机</button>
+        <a href="./ticket.html"><button type="button">套打票据示例 →</button></a>
+      </div>
+
+      <div class="pages">
+        <div id="page1" class="page">
+          <h2>销售出库单</h2>
+          <div class="meta">单号 SO-20260818-001 · 客户：华东供应链</div>
+          <table>
+            <thead>
+              <tr><th>品名</th><th>规格</th><th>数量</th><th>单价</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>热敏标签纸</td><td>40×30mm</td><td>20</td><td>18.00</td></tr>
+              <tr><td>快递面单</td><td>100×180mm</td><td>5</td><td>36.50</td></tr>
+              <tr><td>碳带</td><td>110×300m</td><td>2</td><td>45.00</td></tr>
+            </tbody>
+          </table>
+          <div class="footer">
+            <span>第 1 页</span>
+            <span>制单：李工</span>
+          </div>
+        </div>
+
+        <div id="page2" class="page">
+          <h2>销售出库单（续）</h2>
+          <div class="meta">单号 SO-20260818-001 · 备注页</div>
+          <p>1. 请核对品名规格后签收。</p>
+          <p>2. 本页演示多页连续打印：扩展会按 page1、page2 顺序输出。</p>
+          <div class="footer">
+            <span>第 2 页</span>
+            <span>仓库：A-03</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      function waitReady(timeoutMs = 3000) {
+        if (window.jatoolsPrinter) return Promise.resolve(window.jatoolsPrinter);
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error('未检测到 PrintKit 扩展')),
+            timeoutMs
+          );
+          window.addEventListener(
+            'printkit-ready',
+            () => {
+              clearTimeout(timer);
+              resolve(window.jatoolsPrinter);
+            },
+            { once: true }
+          );
+        });
+      }
+
+      waitReady()
+        .then(async (api) => {
+          const host = await api.getHostStatus().catch(() => ({ available: false }));
+          const hostText = host.available
+            ? `本地代理已连接 (v${host.version || '?'} · ${host.platform || ''})`
+            : `本地代理未安装 — 静默打印会弹出安装说明。${host.error || ''}`;
+          document.getElementById('status').textContent =
+            `PrintKit 已就绪。${hostText}`;
+          await refreshPrinters();
+        })
+        .catch((err) => {
+          document.getElementById('status').textContent = err.message;
+        });
+
+      async function refreshPrinters() {
+        const api = await waitReady();
+        const select = document.getElementById('printerSelect');
+        const current = select.value;
+        select.innerHTML = '<option value="">默认打印机</option>';
+        try {
+          const printers = await api.getPrinters({ promptInstall: false });
+          for (const p of printers || []) {
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            opt.textContent = p.isDefault ? `${p.name}（默认）` : p.name;
+            select.appendChild(opt);
+          }
+          if (current) select.value = current;
+        } catch (err) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = '（需先安装本地代理）';
+          select.appendChild(opt);
+        }
+      }
+
+      async function doPrint(how) {
+        const api = await waitReady();
+        const printer = document.getElementById('printerSelect').value || undefined;
+        const myDoc = {
+          documents: document,
+          copyrights: 'PrintKit demo',
+          settings: {
+            paperName: 'A4',
+            orientation: 1,
+            marginTop: 8,
+            marginRight: 8,
+            marginBottom: 8,
+            marginLeft: 8,
+            copies: 1,
+            printer,
+          },
+          done(err, result) {
+            if (err) console.warn(err, result);
+            else console.log('print done', result);
+          },
+        };
+
+        try {
+          if (how === 'preview') {
+            await api.printPreview(myDoc);
+          } else if (how === 'dialog') {
+            await api.print(myDoc, true);
+          } else {
+            const result = await api.print(myDoc, false);
+            if (result?.mode === 'native-silent') {
+              document.getElementById('status').textContent =
+                `静默打印成功 → ${result.printer || '默认'}（${result.method || 'native'}）`;
+            }
+          }
+        } catch (err) {
+          if (err.code === 'HOST_NOT_INSTALLED' || err.result?.installGuide) {
+            document.getElementById('status').textContent =
+              '未安装本地代理，已打开安装说明窗口。';
+          } else {
+            document.getElementById('status').textContent =
+              err.message || String(err);
+          }
+        }
+      }
+    </script>
+  </body>
+</html>
