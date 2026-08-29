@@ -14,5 +14,7 @@ if [[ -d "$INSTALL_ROOT" ]]; then
   echo "已删除: $INSTALL_ROOT"
 fi
 
+rm -f "$HOME/Desktop/PrintKit-Extension" 2>/dev/null || true
+
 echo "已卸载 Native Messaging 注册。请在 chrome://extensions 中手动移除 PrintKit 扩展。"
 read -r -p "按回车键退出..." _

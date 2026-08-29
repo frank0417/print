@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "PrintKit（jatools 兼容打印）",
-  "version": "0.3.0",
-  "description": "Chrome 网页精确打印扩展：对齐 jatoolsPrinter，支持 Windows/macOS 本地打印代理静默打印。",
+  "version": "0.4.0",
+  "description": "Chrome 网页精确打印扩展：对齐 jatoolsPrinter，支持 Windows/macOS 一键安装本地打印代理静默打印。",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
