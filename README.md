@@ -7,8 +7,8 @@
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| `jatoolsPrinter.printPreview(myDoc)` | ✅ | 打开预览窗 |
-| `jatoolsPrinter.print(myDoc, true)` | ✅ | 预览 + 系统打印对话框 |
+| `jatoolsPrinter.printPreview(myDoc)` | ✅ | 打开预览窗；点「打印」走本地代理 |
+| `jatoolsPrinter.print(myDoc, true)` | ✅ | 打开预览窗；点「打印」走本地代理 |
 | `jatoolsPrinter.print(myDoc, false)` | ✅ | **本地代理静默打印**；未安装则弹出安装说明 |
 | DIV ID 映射分页 `page1`… | ✅ | 支持 `page_div_prefix` |
 | 纸张 / 方向 / 边距 / 份数 | ✅ | `settings` + 预览工具栏 |

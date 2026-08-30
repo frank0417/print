@@ -14,6 +14,7 @@ const os = require('os');
 const path = require('path');
 const { listPrinters, getDefaultPrinter, printPdf } = require('./lib/printers');
 const { htmlJobToPdf } = require('./lib/html-to-pdf');
+const { prewarmChrome } = require('./lib/chrome-cdp');
 
 const MAX_MESSAGE = 1024 * 1024 * 64; // 64MB
 
@@ -93,7 +94,7 @@ async function handle(msg) {
       return {
         ok: true,
         pong: true,
-        version: '0.2.0',
+        version: '0.2.1',
         platform: process.platform,
         arch: process.arch,
       };
@@ -101,7 +102,7 @@ async function handle(msg) {
     case 'getHostInfo':
       return {
         ok: true,
-        version: '0.2.0',
+        version: '0.2.1',
         platform: process.platform,
         arch: process.arch,
         node: process.version,
@@ -116,6 +117,11 @@ async function handle(msg) {
     case 'getDefaultPrinter': {
       const printer = await getDefaultPrinter();
       return { ok: true, printer };
+    }
+
+    case 'prewarm': {
+      const info = await prewarmChrome();
+      return { ok: true, prewarmed: true, ...info };
     }
 
     case 'print': {
@@ -202,6 +208,9 @@ async function main() {
     log('recv', { action: msg.action || msg.type });
     try {
       const result = await handle(msg);
+      if (msg.requestId && result && typeof result === 'object') {
+        result.requestId = msg.requestId;
+      }
       writeMessage(result);
       log('send ok', { action: msg.action || msg.type });
     } catch (err) {

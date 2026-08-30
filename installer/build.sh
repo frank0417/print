@@ -72,10 +72,25 @@ build_windows_payload() {
   mkdir -p "$stage/app/runtime/node"
   cp -a "$CACHE/node-win-extract/node-v${NODE_VERSION}-win-x64/." "$stage/app/runtime/node/"
 
+  mkdir -p "$stage/app/host/bin" "$stage/app/bin"
   download "https://mendelson.org/PDFtoPrinter.exe" "$CACHE/PDFtoPrinter.exe"
   cp "$CACHE/PDFtoPrinter.exe" "$stage/app/bin/PDFtoPrinter.exe"
-  mkdir -p "$stage/app/host/bin"
   cp "$CACHE/PDFtoPrinter.exe" "$stage/app/host/bin/PDFtoPrinter.exe"
+
+  # PDFtoPrinter.exe currently requires pdfium.dll; SumatraPDF is the reliable silent printer.
+  local sumatra_zip="$CACHE/SumatraPDF-3.5.2-64.zip"
+  download "https://www.sumatrapdfreader.org/dl/rel/3.5.2/SumatraPDF-3.5.2-64.zip" "$sumatra_zip"
+  rm -rf "$CACHE/sumatra-extract"
+  mkdir -p "$CACHE/sumatra-extract"
+  unzip -q -o "$sumatra_zip" -d "$CACHE/sumatra-extract"
+  local sumatra_exe
+  sumatra_exe="$(find "$CACHE/sumatra-extract" -iname 'SumatraPDF*.exe' | head -n 1)"
+  if [[ -n "$sumatra_exe" ]]; then
+    cp "$sumatra_exe" "$stage/app/host/bin/SumatraPDF.exe"
+    cp "$sumatra_exe" "$stage/app/bin/SumatraPDF.exe"
+  else
+    log "WARN: SumatraPDF.exe not found in zip"
+  fi
 
   cp "$INSTALLER/win/Install-PrintKit.bat" "$stage/"
   cp "$INSTALLER/win/Install-PrintKit.ps1" "$stage/"

@@ -1,5 +1,6 @@
 'use strict';
 
+const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
@@ -106,6 +107,7 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
 <head>
   <meta charset="utf-8" />
   <title>${escapeHtml(title || 'PrintKit')}</title>
+  ${styleTags.join('\n')}
   <style>
     @page {
       size: ${paper.width}mm ${paper.height}mm;
@@ -117,19 +119,24 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
       background: #fff;
     }
     .pk-page {
-      width: ${paper.width - paper.margins.left - paper.margins.right}mm;
-      min-height: ${paper.height - paper.margins.top - paper.margins.bottom}mm;
+      width: 100%;
+      box-sizing: border-box;
       page-break-after: always;
       break-after: page;
-      overflow: hidden;
-      box-sizing: border-box;
     }
     .pk-page:last-child {
       page-break-after: auto;
       break-after: auto;
     }
+    * {
+      scrollbar-width: none !important;
+    }
+    *::-webkit-scrollbar {
+      width: 0 !important;
+      height: 0 !important;
+      display: none !important;
+    }
   </style>
-  ${styleTags.join('\n')}
 </head>
 <body>
 ${pageHtml}
@@ -150,20 +157,61 @@ async function htmlJobToPdf({ jobDir, title, pages, stylesheets, settings }) {
   const html = buildHtmlDocument({ title, pages, stylesheets, settings });
   fs.writeFileSync(htmlPath, html, 'utf8');
 
-  // file:// URL
+  try {
+    const { htmlToPdfViaCdp } = require('./chrome-cdp');
+    const t0 = Date.now();
+    await htmlToPdfViaCdp({ htmlPath, pdfPath, settings });
+    if (fs.existsSync(pdfPath)) {
+      try {
+        fs.appendFileSync(
+          path.join(os.tmpdir(), 'printkit-host.log'),
+          `[${new Date().toISOString()}] html-to-pdf cdp ${Date.now() - t0}ms\n`
+        );
+      } catch (_) {
+        /* ignore */
+      }
+      return pdfPath;
+    }
+  } catch (err) {
+    try {
+      fs.appendFileSync(
+        path.join(os.tmpdir(), 'printkit-host.log'),
+        `[${new Date().toISOString()}] html-to-pdf cdp failed: ${err.message || err}\n`
+      );
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
   const fileUrl =
     process.platform === 'win32'
       ? 'file:///' + htmlPath.replace(/\\/g, '/')
       : 'file://' + htmlPath;
 
+  const profileDir = path.join(os.tmpdir(), 'printkit-chrome-profile');
+  fs.mkdirSync(profileDir, { recursive: true });
+
   const args = [
-    '--headless=new',
+    '--headless',
     '--disable-gpu',
+    '--disable-software-rasterizer',
     '--no-first-run',
     '--no-default-browser-check',
+    '--disable-extensions',
+    '--disable-background-networking',
+    '--disable-sync',
+    '--disable-translate',
+    '--disable-default-apps',
+    '--disable-component-update',
+    '--metrics-recording-only',
+    '--mute-audio',
+    '--no-pings',
+    '--hide-scrollbars',
     '--allow-file-access-from-files',
+    `--user-data-dir=${profileDir}`,
     `--print-to-pdf=${pdfPath}`,
     '--no-pdf-header-footer',
+    '--virtual-time-budget=2000',
     fileUrl,
   ];
 

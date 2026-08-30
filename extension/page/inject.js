@@ -3,7 +3,7 @@
  * Injected into every page so business code can call:
  *   jatoolsPrinter.printPreview(myDoc)
  *   jatoolsPrinter.print(myDoc, showDialog)
- *   getJCP().then(jcp => jcp.printPreview(myDoc))
+ *   getJCP().printPreview(myDoc)  /  getJCP().then(jcp => jcp.printPreview(myDoc))
  */
 (function injectPrintKit() {
   if (window.__printKitInjected) return;
@@ -72,7 +72,8 @@
     }
 
     const settings = { ...(myDoc.settings || {}) };
-    const prefix = myDoc.page_div_prefix || myDoc.pageDivPrefix || '';
+    const prefix =
+      myDoc.page_div_prefix || myDoc.pageDivPrefix || myDoc.pagePrefix || '';
     let pagesHtml = [];
     let stylesheets = [];
     let title = myDoc.title || document.title || '打印文档';
@@ -178,7 +179,7 @@
      * 打印（对齐 jatoolsPrinter.print）
      * @param {object} myDoc
      * @param {boolean} [showDialog=true]
-     *   true  → 打开预览并调系统打印对话框
+     *   true  → 打开预览；预览窗点「打印」走本地代理
      *   false → 本地代理静默打印；未安装时弹出安装说明（不自动回退）
      */
     print(myDoc, showDialog = true) {
@@ -238,10 +239,51 @@
   window.printKit = api;
   window.PrintKit = api;
 
-  // JCP-style promise getter
+  /**
+   * Dual-compat getter. Must be a plain object (not a Promise instance):
+   *   getJCP().printPreview(myDoc)           — classic JSP / jcpfree.js
+   *   getJCP().then(jcp => jcp.printPreview) — Promise style
+   * Extra properties on native Promise are stripped by .then / Promise.resolve.
+   */
+  function wrapJcp(apiObj) {
+    const wrapped = {
+      printPreview(myDoc, _progress) {
+        return apiObj.printPreview(myDoc);
+      },
+      print(myDoc, showDialog) {
+        return apiObj.print(myDoc, showDialog);
+      },
+      getPrinters(options) {
+        return apiObj.getPrinters(options);
+      },
+      getDefaultPrinter() {
+        return apiObj.getDefaultPrinter();
+      },
+      getHostStatus() {
+        return apiObj.getHostStatus();
+      },
+      openInstallGuide(reason) {
+        return apiObj.openInstallGuide(reason);
+      },
+      isInstalled() {
+        return apiObj.isInstalled ? apiObj.isInstalled() : true;
+      },
+      version: apiObj.version,
+      then(resolve, reject) {
+        return Promise.resolve(apiObj).then(resolve, reject);
+      },
+      catch(reject) {
+        return Promise.resolve(apiObj).catch(reject);
+      },
+    };
+    return wrapped;
+  }
+
   window.getJCP = function getJCP() {
-    return Promise.resolve(api);
+    return wrapJcp(api);
   };
+  window.getJatoolsPrinter = window.getJCP;
+  window.declareJatoolsPrinter = function declareJatoolsPrinter() {};
 
   window.dispatchEvent(new CustomEvent('printkit-ready', { detail: { version: api.version } }));
 })();

@@ -77,15 +77,10 @@ function listPrintersMac() {
 
 function listPrintersWin() {
   const script = `
-$ErrorActionPreference = 'Stop'
-try {
-  Get-Printer | Select-Object Name, DriverName, PortName, Shared, Type |
-    ConvertTo-Json -Compress
-} catch {
-  # Fallback WMI
-  Get-WmiObject -Class Win32_Printer | Select-Object Name, DriverName, PortName, Shared |
-    ConvertTo-Json -Compress
-}
+$ErrorActionPreference = 'SilentlyContinue'
+$default = [string](Get-CimInstance Win32_Printer -Filter "Default=TRUE" | Select-Object -ExpandProperty Name)
+$list = @(Get-CimInstance Win32_Printer | Select-Object Name, DriverName, PortName)
+@{ defaultName = $default; printers = $list } | ConvertTo-Json -Compress -Depth 3
 `;
   const r = spawnSync(
     'powershell.exe',
@@ -96,29 +91,12 @@ try {
     throw new Error(`列举打印机失败: ${(r.stderr || r.stdout || '').trim()}`);
   }
 
-  let defaultName = null;
-  try {
-    const d = spawnSync(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-Command',
-        "(Get-WmiObject -Query \"SELECT * FROM Win32_Printer WHERE Default=$true\").Name",
-      ],
-      { encoding: 'utf8', windowsHide: true }
-    );
-    defaultName = (d.stdout || '').trim() || null;
-  } catch (_) {
-    /* ignore */
-  }
-
   const raw = (r.stdout || '').trim();
   if (!raw) return [];
-  let data = JSON.parse(raw);
-  if (!Array.isArray(data)) data = [data];
+  const parsed = JSON.parse(raw);
+  const defaultName = parsed.defaultName || null;
+  let data = parsed.printers || parsed;
+  if (!Array.isArray(data)) data = data ? [data] : [];
   return data
     .filter((p) => p && p.Name)
     .map((p) => ({
@@ -174,21 +152,99 @@ function printPdfMac({ pdfPath, printer, copies, settings }) {
   return { printer: target || 'default', method: 'lp', stdout: (r.stdout || '').trim() };
 }
 
-function findWinPrintHelper() {
-  const binDir = path.join(__dirname, '..', 'bin');
-  const candidates = [
-    path.join(binDir, 'PDFtoPrinter.exe'),
-    path.join(binDir, 'SumatraPDF.exe'),
-    path.join(binDir, 'SumatraPDF-32.exe'),
-  ];
-  for (const c of candidates) {
-    if (fs.existsSync(c)) return c;
+function winBinDir() {
+  return path.join(__dirname, '..', 'bin');
+}
+
+function spawnDetail(r) {
+  const status =
+    r.status == null ? '' : `exit ${r.status} (0x${(r.status >>> 0).toString(16)})`;
+  return [r.error && r.error.message, (r.stderr || '').trim(), (r.stdout || '').trim(), status]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function listWinPrintHelpers() {
+  const binDir = winBinDir();
+  const helpers = [];
+  const pdfToPrinter = path.join(binDir, 'PDFtoPrinter.exe');
+  const pdfium = path.join(binDir, 'pdfium.dll');
+  // Current mendelson.org PDFtoPrinter.exe is a pdfium wrapper; without
+  // pdfium.dll it crashes with 0xC0000135 and an empty error string.
+  if (fs.existsSync(pdfToPrinter) && fs.existsSync(pdfium)) {
+    helpers.push({ kind: 'PDFtoPrinter', path: pdfToPrinter });
   }
-  return null;
+  for (const name of ['SumatraPDF.exe', 'SumatraPDF-32.exe']) {
+    const full = path.join(binDir, name);
+    if (fs.existsSync(full)) helpers.push({ kind: 'SumatraPDF', path: full });
+  }
+  return helpers;
+}
+
+function printWithPdfToPrinter(helper, pdfPath, target, copies) {
+  for (let i = 0; i < copies; i++) {
+    const args = [pdfPath];
+    if (target) args.push(target);
+    const r = spawnSync(helper, args, {
+      encoding: 'utf8',
+      windowsHide: true,
+      cwd: path.dirname(helper),
+    });
+    if (r.status !== 0) {
+      throw new Error(`PDFtoPrinter 失败: ${spawnDetail(r) || '无输出'}`);
+    }
+  }
+  return { printer: target || 'default', method: 'PDFtoPrinter' };
+}
+
+function printWithSumatra(helper, pdfPath, target, copies) {
+  const args = ['-silent', '-exit-when-done'];
+  if (target) args.push('-print-to', target);
+  else args.push('-print-to-default');
+  if (copies > 1) args.push('-print-settings', `${copies}x`);
+  args.push(pdfPath);
+  const r = spawnSync(helper, args, {
+    encoding: 'utf8',
+    windowsHide: true,
+    cwd: path.dirname(helper),
+    timeout: 120000,
+  });
+  if (r.status !== 0) {
+    throw new Error(`SumatraPDF 打印失败: ${spawnDetail(r) || '无输出'}`);
+  }
+  return { printer: target || 'default', method: 'SumatraPDF' };
+}
+
+function printWithShellVerb(pdfPath, target, copies) {
+  const script = `
+$ErrorActionPreference = 'Stop'
+$pdf = '${pdfPath.replace(/'/g, "''")}'
+$printer = '${(target || '').replace(/'/g, "''")}'
+$copies = ${copies}
+for ($i = 0; $i -lt $copies; $i++) {
+  if ([string]::IsNullOrWhiteSpace($printer)) {
+    Start-Process -FilePath $pdf -Verb Print -WindowStyle Hidden -Wait
+  } else {
+    try {
+      Start-Process -FilePath $pdf -Verb PrintTo -ArgumentList $printer -WindowStyle Hidden -Wait
+    } catch {
+      Start-Process -FilePath $pdf -Verb Print -WindowStyle Hidden -Wait
+    }
+  }
+}
+`;
+  const r = spawnSync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+    { encoding: 'utf8', windowsHide: true, timeout: 120000 }
+  );
+  if (r.status !== 0) {
+    throw new Error(`Windows 打印失败: ${spawnDetail(r) || '无输出'}`);
+  }
+  return { printer: target || 'default', method: 'PrintTo/Print verb' };
 }
 
 function printPdfWin({ pdfPath, printer, copies, settings }) {
-  const helper = findWinPrintHelper();
   let target = printer;
   if (!target) {
     try {
@@ -210,61 +266,27 @@ function printPdfWin({ pdfPath, printer, copies, settings }) {
     }
   }
 
-  if (helper && /PDFtoPrinter\.exe$/i.test(helper)) {
-    // https://www.columbia.edu/~em36/pdftoprinter.html
-    // PDFtoPrinter.exe file.pdf "Printer Name"
-    for (let i = 0; i < copies; i++) {
-      const args = [pdfPath];
-      if (target) args.push(target);
-      const r = spawnSync(helper, args, { encoding: 'utf8', windowsHide: true });
-      if (r.status !== 0) {
-        throw new Error(`PDFtoPrinter 失败: ${(r.stderr || r.stdout || '').trim()}`);
-      }
-    }
-    return { printer: target || 'default', method: 'PDFtoPrinter' };
-  }
-
-  if (helper && /SumatraPDF/i.test(helper)) {
-    const args = ['-print-to', target || 'default', '-silent', '-exit-when-done'];
-    if (copies > 1) args.push('-print-settings', `${copies}x`);
-    args.push(pdfPath);
-    const r = spawnSync(helper, args, { encoding: 'utf8', windowsHide: true });
-    if (r.status !== 0) {
-      throw new Error(`SumatraPDF 打印失败: ${(r.stderr || r.stdout || '').trim()}`);
-    }
-    return { printer: target || 'default', method: 'SumatraPDF' };
-  }
-
-  // Fallback: PrintTo verb (may briefly flash depending on PDF association)
-  const script = `
-$ErrorActionPreference = 'Stop'
-$pdf = '${pdfPath.replace(/'/g, "''")}'
-$printer = '${(target || '').replace(/'/g, "''")}'
-$copies = ${copies}
-for ($i = 0; $i -lt $copies; $i++) {
-  if ([string]::IsNullOrWhiteSpace($printer)) {
-    Start-Process -FilePath $pdf -Verb Print -WindowStyle Hidden -Wait
-  } else {
-    # PrintTo is available for many PDF handlers
+  const errors = [];
+  for (const helper of listWinPrintHelpers()) {
     try {
-      Start-Process -FilePath $pdf -Verb PrintTo -ArgumentList $printer -WindowStyle Hidden -Wait
-    } catch {
-      Start-Process -FilePath $pdf -Verb Print -WindowStyle Hidden -Wait
+      if (helper.kind === 'PDFtoPrinter') {
+        return printWithPdfToPrinter(helper.path, pdfPath, target, copies);
+      }
+      if (helper.kind === 'SumatraPDF') {
+        return printWithSumatra(helper.path, pdfPath, target, copies);
+      }
+    } catch (err) {
+      errors.push(err.message || String(err));
     }
   }
-}
-`;
-  const r = spawnSync(
-    'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
-    { encoding: 'utf8', windowsHide: true, timeout: 120000 }
-  );
-  if (r.status !== 0) {
-    throw new Error(
-      `Windows 打印失败（建议将 PDFtoPrinter.exe 放到 native-host/bin/）: ${(r.stderr || r.stdout || '').trim()}`
-    );
+
+  try {
+    return printWithShellVerb(pdfPath, target, copies);
+  } catch (err) {
+    errors.push(err.message || String(err));
   }
-  return { printer: target || 'default', method: 'PrintTo/Print verb' };
+
+  throw new Error(errors.filter(Boolean).join(' | ') || 'Windows 打印失败');
 }
 
 module.exports = {
@@ -272,4 +294,5 @@ module.exports = {
   getDefaultPrinter,
   printPdf,
   which,
+  listWinPrintHelpers,
 };
