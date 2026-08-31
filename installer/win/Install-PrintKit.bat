@@ -11,18 +11,23 @@ if not exist "%~dp0Install-PrintKit.ps1" (
 
 echo Starting PrintKit installer...
 echo Folder: %~dp0
+echo Log: %TEMP%\PrintKit-install.log
 echo.
 
-powershell.exe -NoProfile -NoLogo -ExecutionPolicy Bypass -Command ^
-  "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; & '%~dp0Install-PrintKit.ps1'"
+powershell.exe -NoProfile -NoLogo -ExecutionPolicy Bypass -File "%~dp0Install-PrintKit.ps1"
+set ERR=%ERRORLEVEL%
 
-if errorlevel 1 (
+if not "%ERR%"=="0" (
   echo.
-  echo Install failed. See errors above.
-  echo If text looks garbled, re-download the ZIP from GitHub Releases
-  echo instead of copying through WeChat.
+  echo Install failed (exit %ERR%). See errors above.
+  echo Log file: %TEMP%\PrintKit-install.log
+  echo.
+  echo Tips:
+  echo  - Re-download ZIP from GitHub Releases, do NOT use WeChat transfer
+  echo  - Extract fully, then run Install-PrintKit.bat
+  echo  - Close Chrome/Edge, delete %%LOCALAPPDATA%%\PrintKit, retry
   pause
-  exit /b 1
+  exit /b %ERR%
 )
 
 endlocal

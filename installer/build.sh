@@ -14,7 +14,7 @@ CACHE="${PRINTKIT_CACHE:-/tmp/printkit-build-cache}"
 NODE_VERSION="${PRINTKIT_NODE_VERSION:-22.14.0}"
 STAGE="$DIST/.stage"
 ARTIFACTS="${PRINTKIT_ARTIFACTS:-/opt/cursor/artifacts}"
-VERSION="0.5.1"
+VERSION="0.5.2"
 
 mkdir -p "$DIST" "$CACHE" "$STAGE" "$ARTIFACTS"
 

@@ -16,6 +16,14 @@ Install (ZIP)
 5. Select the opened folder: %LOCALAPPDATA%\PrintKit\extension
 6. Extension ID must be: memmopnlapcegennpipheiadaonehljd
 
+If install fails
+----------------
+1. Open log: %TEMP%\PrintKit-install.log
+2. Re-download from GitHub (WeChat may corrupt .ps1)
+3. Close Chrome/Edge
+4. Delete folder: %LOCALAPPDATA%\PrintKit
+5. Run installer again
+
 One-click download
 ------------------
 https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-windows.exe
