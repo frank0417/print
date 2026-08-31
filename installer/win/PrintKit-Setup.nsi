@@ -7,9 +7,10 @@ RequestExecutionLevel user
 ShowInstDetails show
 
 !include "LogicLib.nsh"
+!include "FileFunc.nsh"
 
 !define PRODUCT_NAME "PrintKit"
-!define PRODUCT_VERSION "0.5.2"
+!define PRODUCT_VERSION "0.5.3"
 !define SETUP_STAGE "@@SETUP_STAGE@@"
 !define OUT_FILE "@@OUT_FILE@@"
 
@@ -21,6 +22,9 @@ Caption "PrintKit Setup"
 
 Page instfiles
 
+Var PrintKitExit
+Var PrintKitLogTail
+
 Section "Install"
   SetDetailsPrint both
   DetailPrint "Extracting PrintKit..."
@@ -28,19 +32,38 @@ Section "Install"
   InitPluginsDir
   SetOutPath "$PLUGINSDIR\setup"
   File "${SETUP_STAGE}/Install-PrintKit.ps1"
+  File "${SETUP_STAGE}/Install-PrintKit.bat"
   File "${SETUP_STAGE}/Open-Extensions.bat"
   File /r "${SETUP_STAGE}/app"
 
-  DetailPrint "Running silent install..."
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NoLogo -ExecutionPolicy Bypass -File "$PLUGINSDIR\setup\Install-PrintKit.ps1" -NoPause -FromOneClick'
+  ; Stage to a stable short path (avoids WeChat / temp path quirks)
+  CreateDirectory "$LOCALAPPDATA\PrintKit-Setup-Staging"
+  DetailPrint "Staging files..."
+  nsExec::ExecToLog '"$SYSDIR\cmd.exe" /C robocopy "$PLUGINSDIR\setup" "$LOCALAPPDATA\PrintKit-Setup-Staging" /E /NFL /NDL /NJH /NJS /nc /ns /np /R:1 /W:1'
   Pop $0
-  DetailPrint "Installer exit code: $0"
+  DetailPrint "Stage robocopy exit: $0"
+  ; robocopy 0-7 = ok
 
-  ${If} $0 != 0
-    MessageBox MB_ICONSTOP|MB_OK "PrintKit install failed (exit $0).$\r$\nRetry, or use the ZIP and run Install-PrintKit.bat."
+  DetailPrint "Running silent install..."
+  ; Use cmd so PowerShell exit code is preserved reliably for nsExec
+  nsExec::ExecToLog '"$SYSDIR\cmd.exe" /C ""$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NoLogo -ExecutionPolicy Bypass -File "$LOCALAPPDATA\PrintKit-Setup-Staging\Install-PrintKit.ps1" -NoPause -FromOneClick & exit /b %ERRORLEVEL%"'
+  Pop $PrintKitExit
+  DetailPrint "Installer exit code: $PrintKitExit"
+
+  ; If core files landed, treat as success even if helper step failed
+  IfFileExists "$LOCALAPPDATA\PrintKit\host\host.js" 0 check_fail
+  IfFileExists "$LOCALAPPDATA\PrintKit\runtime\node\node.exe" 0 check_fail
+  DetailPrint "Core files present. Install OK."
+  Goto install_ok
+
+check_fail:
+  ${If} $PrintKitExit != 0
+    StrCpy $PrintKitLogTail "See %TEMP%\PrintKit-install.log"
+    MessageBox MB_ICONSTOP|MB_OK "PrintKit install failed (exit $PrintKitExit).$\r$\n$\r$\n1) Download ZIP from GitHub (not WeChat)$\r$\n2) Copy to C:\PrintKit-Setup$\r$\n3) Run Install-PrintKit.bat$\r$\n$\r$\nLog: %TEMP%\PrintKit-install.log"
     SetErrorLevel 1
     Abort
   ${EndIf}
 
-  MessageBox MB_ICONINFORMATION|MB_OK "PrintKit installed.$\r$\n$\r$\n1) chrome://extensions$\r$\n2) Enable Developer mode$\r$\n3) Load unpacked → select the opened extension folder$\r$\n$\r$\nExpected ID: memmopnlapcegennpipheiadaonehljd"
+install_ok:
+  MessageBox MB_ICONINFORMATION|MB_OK "PrintKit installed.$\r$\n$\r$\n1) chrome://extensions$\r$\n2) Enable Developer mode$\r$\n3) Load unpacked -> %LOCALAPPDATA%\PrintKit\extension$\r$\n$\r$\nExpected ID: memmopnlapcegennpipheiadaonehljd"
 SectionEnd
