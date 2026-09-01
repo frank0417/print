@@ -1,4 +1,5 @@
 # PrintKit Windows installer (all-in-one / one-click)
+# Compatible with Windows PowerShell 2.0+
 # Run via Install-PrintKit.bat, NSIS exe, or:
 #   powershell -ExecutionPolicy Bypass -File Install-PrintKit.ps1
 param(
@@ -8,11 +9,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Resolve setup root even when launched via NSIS temp extract
+# Resolve setup root (PSScriptRoot is PS 3+)
 $SetupRoot = $null
-if ($PSScriptRoot) {
-  $SetupRoot = $PSScriptRoot
-} elseif ($MyInvocation.MyCommand.Path) {
+if ($MyInvocation.MyCommand.Path) {
   $SetupRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 } else {
   $SetupRoot = (Get-Location).Path
@@ -24,16 +23,34 @@ $NativeHostName = 'com.printkit.host'
 $ExtId = 'memmopnlapcegennpipheiadaonehljd'
 $InstallLog = Join-Path $env:TEMP 'PrintKit-install.log'
 
+function Get-Utf8NoBomEncoding {
+  return (New-Object System.Text.UTF8Encoding $false)
+}
+
 function Write-InstallLog([string]$Message) {
   $line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message"
   try {
-    Add-Content -LiteralPath $InstallLog -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue
+    Add-Content -Path $InstallLog -Value $line -ErrorAction SilentlyContinue
   } catch {}
   Write-Host $Message
 }
 
 function Write-InstallWarn([string]$Message) {
   Write-InstallLog "WARN: $Message"
+}
+
+function New-NativeHostManifestJson([string]$LauncherPath, [string]$HostName, [string]$ExtensionId) {
+  $escapedPath = $LauncherPath.Replace('\', '\\').Replace('"', '\"')
+  $json = "{`r`n"
+  $json += "  `"name`": `"$HostName`",`r`n"
+  $json += "  `"description`": `"PrintKit Native Messaging Host`",`r`n"
+  $json += "  `"path`": `"$escapedPath`",`r`n"
+  $json += "  `"type`": `"stdio`",`r`n"
+  $json += "  `"allowed_origins`": [`r`n"
+  $json += "    `"chrome-extension://$ExtensionId/`"`r`n"
+  $json += "  ]`r`n"
+  $json += "}`r`n"
+  return $json
 }
 
 function Invoke-RobocopyInstall([string]$Source, [string]$Target) {
@@ -46,12 +63,9 @@ function Invoke-RobocopyInstall([string]$Source, [string]$Target) {
   Write-InstallLog ("robocopy " + ($roboArgs -join ' '))
   $prevEap = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
-  try {
-    & robocopy.exe @roboArgs | Out-Null
-    $code = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $prevEap
-  }
+  & robocopy.exe @roboArgs | Out-Null
+  $code = $LASTEXITCODE
+  $ErrorActionPreference = $prevEap
   Write-InstallLog "robocopy exit code: $code"
   # robocopy: 0-7 = success/partial, >=8 = failure
   if ($code -ge 8) {
@@ -75,8 +89,18 @@ function Register-NativeHost([string]$RegPath, [string]$ManifestPath) {
   Write-InstallLog "Registered: $RegPath"
 }
 
+function Copy-TextToClipboard([string]$Text) {
+  try {
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.Clipboard]::SetText($Text)
+    return $true
+  } catch {
+    return $false
+  }
+}
+
 try {
-  Set-Content -LiteralPath $InstallLog -Value "PrintKit Windows install log" -Encoding UTF8
+  Set-Content -Path $InstallLog -Value "PrintKit Windows install log"
   Write-InstallLog "Setup root: $SetupRoot"
   Write-InstallLog "Install folder: $InstallRoot"
   Write-InstallLog "FromOneClick=$FromOneClick NoPause=$NoPause PSVersion=$($PSVersionTable.PSVersion)"
@@ -88,7 +112,7 @@ try {
   Write-Host "Install log: $InstallLog"
   Write-Host ''
 
-  if (-not (Test-Path -LiteralPath (Join-Path $AppSource 'host\host.js'))) {
+  if (-not (Test-Path (Join-Path $AppSource 'host\host.js'))) {
     throw 'Missing app\host\host.js. Extract the full PrintKit-Setup-windows ZIP, or use PrintKit-Setup-windows.exe from GitHub Releases (not WeChat).'
   }
 
@@ -102,32 +126,26 @@ try {
   $ManifestPath = Join-Path $InstallRoot "$NativeHostName.json"
   $PdfHelper = Join-Path $InstallRoot 'bin\PDFtoPrinter.exe'
   $FinishHtml = Join-Path $InstallRoot 'finish.html'
+  $utf8 = Get-Utf8NoBomEncoding
 
-  if (-not (Test-Path -LiteralPath $NodeExe)) {
+  if (-not (Test-Path $NodeExe)) {
     throw 'Bundled Node runtime not found in this package.'
   }
-  if (-not (Test-Path -LiteralPath $HostJs)) {
+  if (-not (Test-Path $HostJs)) {
     throw 'host\host.js missing after copy.'
   }
 
   $hostBin = Join-Path $InstallRoot 'host\bin'
   New-Item -ItemType Directory -Force -Path $hostBin | Out-Null
-  if (Test-Path -LiteralPath $PdfHelper) {
-    Copy-Item -LiteralPath $PdfHelper -Destination (Join-Path $hostBin 'PDFtoPrinter.exe') -Force
+  if (Test-Path $PdfHelper) {
+    Copy-Item -Path $PdfHelper -Destination (Join-Path $hostBin 'PDFtoPrinter.exe') -Force
   }
 
   $launcherContent = "@echo off`r`n`"$NodeExe`" `"$HostJs`" %*`r`n"
   [System.IO.File]::WriteAllText($Launcher, $launcherContent, [System.Text.Encoding]::ASCII)
 
-  $manifestObj = @{
-    name            = $NativeHostName
-    description     = 'PrintKit Native Messaging Host'
-    path            = $Launcher
-    type            = 'stdio'
-    allowed_origins = @("chrome-extension://$ExtId/")
-  }
-  $manifestJson = ($manifestObj | ConvertTo-Json -Compress)
-  [System.IO.File]::WriteAllText($ManifestPath, $manifestJson, [System.Text.UTF8Encoding]::new($false))
+  $manifestJson = New-NativeHostManifestJson -LauncherPath $Launcher -HostName $NativeHostName -ExtensionId $ExtId
+  [System.IO.File]::WriteAllText($ManifestPath, $manifestJson, $utf8)
 
   Register-NativeHost "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$NativeHostName" $ManifestPath
   Register-NativeHost "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\$NativeHostName" $ManifestPath
@@ -152,7 +170,7 @@ try {
   [System.IO.File]::WriteAllText(
     (Join-Path $InstallRoot 'EXTENSION_PATH.txt'),
     $ExtDir,
-    [System.Text.UTF8Encoding]::new($false)
+    $utf8
   )
 
   try {
@@ -161,7 +179,7 @@ try {
     New-Item -ItemType Directory -Force -Path $Programs | Out-Null
 
     $openExtBat = Join-Path $InstallRoot 'Open-Extensions.bat'
-    if (-not (Test-Path -LiteralPath $openExtBat)) {
+    if (-not (Test-Path $openExtBat)) {
       $bat = "@echo off`r`nstart chrome.exe chrome://extensions`r`nif errorlevel 1 start msedge.exe chrome://extensions`r`n"
       [System.IO.File]::WriteAllText($openExtBat, $bat, [System.Text.Encoding]::ASCII)
     }
@@ -181,17 +199,10 @@ try {
     Write-InstallWarn "Shortcut creation skipped: $($_.Exception.Message)"
   }
 
-  try {
-    Set-Clipboard -Value $ExtDir
+  if (Copy-TextToClipboard $ExtDir) {
     Write-InstallLog 'Extension path copied to clipboard.'
-  } catch {
-    try {
-      Add-Type -AssemblyName System.Windows.Forms
-      [System.Windows.Forms.Clipboard]::SetText($ExtDir)
-      Write-InstallLog 'Extension path copied to clipboard.'
-    } catch {
-      Write-InstallWarn 'Could not copy path to clipboard.'
-    }
+  } else {
+    Write-InstallWarn 'Could not copy path to clipboard.'
   }
 
   Write-InstallLog 'Install finished.'
@@ -215,7 +226,7 @@ try {
     }
   }
 
-  if (Test-Path -LiteralPath $FinishHtml) {
+  if (Test-Path $FinishHtml) {
     $uri = 'file:///' + ($FinishHtml -replace '\\', '/') + '?path=' + [uri]::EscapeDataString($ExtDir)
     try { Start-Process $uri } catch {
       try { Start-Process $FinishHtml } catch {
