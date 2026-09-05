@@ -57,8 +57,11 @@ function resolvePaper(settings = {}) {
   const preset = PAPER_PRESETS[name] || PAPER_PRESETS.A4;
   let width = Number(settings.pageWidth || settings.width || preset.width);
   let height = Number(settings.pageHeight || settings.height || preset.height);
-  const orientation = Number(settings.orientation || 1);
+  // 1 = portrait (纵向), 2 = landscape (横向). Always apply — custom sizes included.
+  const orientation = Number(settings.orientation || 1) === 2 ? 2 : 1;
   if (orientation === 2 && width < height) {
+    [width, height] = [height, width];
+  } else if (orientation === 1 && width > height) {
     [width, height] = [height, width];
   }
   // Default 0mm — continuous-form / pin printers blur when content is
@@ -119,16 +122,30 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
       margin: 0;
       padding: 0;
       background: #fff;
+      color: #000;
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
       color-adjust: exact !important;
-      text-rendering: geometricPrecision;
-      /* Pin/thermal printers: avoid soft antialiased glyphs */
+      /* Pin printers: soft ClearType edges become broken dots */
       -webkit-font-smoothing: none;
       font-smooth: never;
+      text-rendering: optimizeSpeed;
+      text-shadow: none;
     }
-    body {
+    body, table, td, th, div, span, p, font {
       font-smooth: never;
+      -webkit-font-smoothing: none;
+      text-shadow: none;
+    }
+    @media print {
+      html, body, table, td, th, div, span, p, font {
+        color: #000 !important;
+        -webkit-font-smoothing: none !important;
+        font-smooth: never !important;
+        text-shadow: none !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
     }
     .pk-page {
       width: 100%;

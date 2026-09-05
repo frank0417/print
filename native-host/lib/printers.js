@@ -340,11 +340,25 @@ function printWithPdfToPrinter(helper, pdfPath, target, copies) {
   return { printer: target || 'default', method: 'PDFtoPrinter' };
 }
 
-function printWithSumatra(helper, pdfPath, target, copies) {
+function printWithSumatra(helper, pdfPath, target, copies, settings) {
   // noscale avoids blurry stretch-to-fit on Windows drivers
   const printSettings = [];
   if (copies > 1) printSettings.push(String(copies) + 'x');
   printSettings.push('noscale');
+  const orientation = Number(settings && settings.orientation) === 2 ? 2 : 1;
+  // Also honor landscape when page is wider than tall
+  let landscape = orientation === 2;
+  try {
+    const paper = require('./html-to-pdf').resolvePaper(settings || {});
+    if (paper.width > paper.height) landscape = true;
+    if (paper.orientation === 2) landscape = true;
+    if (Number(settings && settings.orientation) === 1 && paper.width <= paper.height) {
+      landscape = false;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  printSettings.push(landscape ? 'landscape' : 'portrait');
   const args = ['-silent', '-exit-when-done'];
   if (target) args.push('-print-to', target);
   else args.push('-print-to-default');
@@ -364,6 +378,7 @@ function printWithSumatra(helper, pdfPath, target, copies) {
     const settings2 = [];
     if (copies > 1) settings2.push(String(copies) + 'x');
     settings2.push('shrink');
+    settings2.push(landscape ? 'landscape' : 'portrait');
     args2.push('-print-settings', settings2.join(','));
     args2.push(pdfPath);
     const r2 = spawnSync(helper, args2, {
@@ -375,9 +390,15 @@ function printWithSumatra(helper, pdfPath, target, copies) {
     if (r2.status !== 0) {
       throw new Error(`SumatraPDF 打印失败: ${spawnDetail(r2) || spawnDetail(r) || '无输出'}`);
     }
-    return { printer: target || 'default', method: 'SumatraPDF-shrink' };
+    return {
+      printer: target || 'default',
+      method: 'SumatraPDF-shrink-' + (landscape ? 'landscape' : 'portrait'),
+    };
   }
-  return { printer: target || 'default', method: 'SumatraPDF-noscale' };
+  return {
+    printer: target || 'default',
+    method: 'SumatraPDF-noscale-' + (landscape ? 'landscape' : 'portrait'),
+  };
 }
 
 function printWithShellVerb(pdfPath, target, copies) {
@@ -531,7 +552,7 @@ function seedChromePrintProfile(profileDir, opts) {
     marginsType: 1, // NO_MARGINS
     scalingType: 3, // CUSTOM → use scaling %
     scaling: '100',
-    isLandscapeEnabled: widthMm > heightMm,
+    isLandscapeEnabled: !!(opts.landscape || widthMm > heightMm),
     mediaSize: {
       height_microns: hMicrons,
       width_microns: wMicrons,
@@ -570,10 +591,62 @@ function seedChromePrintProfile(profileDir, opts) {
 }
 
 /**
+ * Rewrite @page size so IE/Chrome honor portrait vs landscape.
+ * Returns a temp HTML path (does not mutate the original job file).
+ */
+function materializeOrientedHtml(htmlPath, settings) {
+  const paper = require('./html-to-pdf').resolvePaper(settings || {});
+  const abs = path.resolve(htmlPath);
+  const outPath = path.join(
+    path.dirname(abs),
+    'job-orient-' + (paper.orientation === 2 ? 'land' : 'port') + '.html'
+  );
+  let html = fs.readFileSync(abs, 'utf8');
+  const css =
+    '<style id="printkit-orientation-fix">' +
+    '@page{size:' +
+    paper.width +
+    'mm ' +
+    paper.height +
+    'mm;margin:' +
+    paper.margins.top +
+    'mm ' +
+    paper.margins.right +
+    'mm ' +
+    paper.margins.bottom +
+    'mm ' +
+    paper.margins.left +
+    'mm;}' +
+    'html,body{margin:0;padding:0;background:#fff;}' +
+    /* Pin printers: antialiased gray edges become broken dots ("点状不连续"). */
+    'html,body,table,td,th,div,span,p,font,input,textarea{' +
+    '-webkit-font-smoothing:none!important;font-smooth:never!important;' +
+    'text-rendering:optimizeSpeed!important;text-shadow:none!important;}' +
+    '@media print{' +
+    '*{-webkit-font-smoothing:none!important;font-smooth:never!important;' +
+    'text-shadow:none!important;}' +
+    'body,table,td,th,div,span,p,font{color:#000!important;}' +
+    '}' +
+    '</style>';
+  if (/id="printkit-orientation-fix"/.test(html)) {
+    html = html.replace(
+      /<style id="printkit-orientation-fix">[\s\S]*?<\/style>/i,
+      css
+    );
+  } else if (/<\/head>/i.test(html)) {
+    html = html.replace(/<\/head>/i, css + '</head>');
+  } else {
+    html = css + html;
+  }
+  fs.writeFileSync(outPath, html, 'utf8');
+  return { htmlPath: outPath, paper: paper, landscape: paper.orientation === 2 || paper.width > paper.height };
+}
+
+/**
  * IE/WebBrowser COM print — same path classic Chinese print plugins use on Win7.
  * Sends GDI to the pin-printer driver (sharp text/lines), not a scaled bitmap.
  */
-function printWithIeCom(htmlPath, target, copies) {
+function printWithIeCom(htmlPath, target, copies, settings) {
   const prevDefault = getDefaultPrinterNameWin();
   let changed = false;
   if (target && prevDefault && target !== prevDefault) {
@@ -582,11 +655,23 @@ function printWithIeCom(htmlPath, target, copies) {
     changed = setDefaultPrinterWin(target);
   }
 
-  const abs = path.resolve(htmlPath).replace(/'/g, "''");
+  const oriented = materializeOrientedHtml(htmlPath, settings || {});
+  const abs = path.resolve(oriented.htmlPath).replace(/'/g, "''");
   const n = Math.max(1, copies || 1);
-  // PowerShell 2.0 compatible (Win7). Zero IE page margins for continuous forms.
+  const land = oriented.landscape ? '$true' : '$false';
+  // PowerShell 2.0 compatible (Win7).
+  // Disable ClearType/font smoothing so GDI glyphs stay solid on pin printers,
+  // then restore. Zero IE page margins for continuous forms.
   const script =
     "$ErrorActionPreference='Stop';" +
+    "$smoothWas=1;" +
+    "try{" +
+    "$spi=Add-Type -PassThru -Name PkSpi" +
+    String(Date.now() % 100000) +
+    " -MemberDefinition '[System.Runtime.InteropServices.DllImport(\"user32.dll\")] public static extern bool SystemParametersInfo(uint a,uint b,System.IntPtr c,uint d); [System.Runtime.InteropServices.DllImport(\"user32.dll\")] public static extern bool SystemParametersInfo(uint a,uint b,ref int c,uint d);';" +
+    "$tmp=1; $spi::SystemParametersInfo(0x4A,0,[ref]$tmp,0)|Out-Null; $smoothWas=$tmp;" +
+    "$spi::SystemParametersInfo(0x4B,0,[IntPtr]::Zero,3)|Out-Null;" +
+    "}catch{};" +
     "New-Item -Path 'HKCU:\\Software\\Microsoft\\Internet Explorer\\PageSetup' -Force | Out-Null;" +
     "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Internet Explorer\\PageSetup' -Name margin_left -Value '0.000000' -Force;" +
     "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Internet Explorer\\PageSetup' -Name margin_right -Value '0.000000' -Force;" +
@@ -594,6 +679,12 @@ function printWithIeCom(htmlPath, target, copies) {
     "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Internet Explorer\\PageSetup' -Name margin_bottom -Value '0.000000' -Force;" +
     "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Internet Explorer\\PageSetup' -Name header -Value '' -Force;" +
     "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Internet Explorer\\PageSetup' -Name footer -Value '' -Force;" +
+    "try{Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue;" +
+    "$pd=New-Object System.Drawing.Printing.PrintDocument;" +
+    "if(-not [string]::IsNullOrEmpty($PrinterName))$pd.PrinterSettings.PrinterName=$PrinterName;" +
+    "$pd.DefaultPageSettings.Landscape=" +
+    land +
+    ";}catch{};" +
     "$html='" +
     abs +
     "';" +
@@ -601,22 +692,31 @@ function printWithIeCom(htmlPath, target, copies) {
     "$copies=" +
     String(n) +
     ';' +
-    'for($c=0;$c -lt $copies;$c++){' +
+    'try{for($c=0;$c -lt $copies;$c++){' +
     "$ie=New-Object -ComObject InternetExplorer.Application;" +
     '$ie.Visible=$false;' +
     '$ie.Navigate($uri);' +
     'while($ie.Busy -or $ie.ReadyState -ne 4){Start-Sleep -Milliseconds 200};' +
-    'Start-Sleep -Milliseconds 600;' +
+    'Start-Sleep -Milliseconds 800;' +
     '$ie.ExecWB(6,2);' +
-    'Start-Sleep -Seconds 3;' +
+    'Start-Sleep -Seconds 4;' +
     '$ie.Quit();' +
     '[System.Runtime.InteropServices.Marshal]::ReleaseComObject($ie)|Out-Null;' +
+    '}} finally {' +
+    'try{if($spi -and $smoothWas -ne 0){$spi::SystemParametersInfo(0x4B,1,[IntPtr]::Zero,3)|Out-Null}}catch{}' +
     '}';
 
   try {
     const r = spawnSync(
       'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        "$PrinterName='" + String(target || '').replace(/'/g, "''") + "';" + script,
+      ],
       { encoding: 'utf8', windowsHide: true, timeout: 180000 }
     );
     if (r.status !== 0) {
@@ -624,7 +724,7 @@ function printWithIeCom(htmlPath, target, copies) {
     }
     return {
       printer: target || prevDefault || 'default',
-      method: 'IE-COM-GDI',
+      method: 'IE-COM-GDI-' + (oriented.landscape ? 'landscape' : 'portrait') + '-crisp',
     };
   } finally {
     if (changed && prevDefault) {
@@ -670,6 +770,7 @@ function printWithChromeKiosk(filePath, target, copies, settings) {
     paper: paper,
     pageWidth: paper.width,
     pageHeight: paper.height,
+    landscape: paper.orientation === 2 || paper.width > paper.height,
   });
 
   const printFile = prepareKioskPrintFile(filePath);
@@ -729,16 +830,16 @@ function printPdfWin({ pdfPath, printer, copies, settings }) {
     (settings && settings.htmlPath) ||
     (pdfPath ? pdfPath.replace(/\.pdf$/i, '.html') : null);
 
-  // 1) IE COM GDI of HTML — matches classic plugins on Win7 pin/continuous printers
+  // 1) IE COM GDI of HTML — sharp solid glyphs on pin printers (pass orientation!)
   if (htmlPath && fs.existsSync(htmlPath)) {
     try {
-      return printWithIeCom(htmlPath, target, copies);
+      return printWithIeCom(htmlPath, target, copies, settings);
     } catch (err) {
       errors.push(err.message || String(err));
     }
   }
 
-  // 2) Chrome kiosk HTML at forced 100% scale
+  // 2) Chrome kiosk HTML at forced 100% scale + landscape flag
   if (htmlPath && fs.existsSync(htmlPath)) {
     try {
       return printWithChromeKiosk(htmlPath, target, copies, settings);
@@ -747,21 +848,21 @@ function printPdfWin({ pdfPath, printer, copies, settings }) {
     }
   }
 
-  // 3) Chrome kiosk PDF (still better than Sumatra bitmap)
+  // 3) Chrome kiosk PDF
   try {
     return printWithChromeKiosk(pdfPath, target, copies, settings);
   } catch (err) {
     errors.push(err.message || String(err));
   }
 
-  // 3) Legacy helpers
+  // 4) Legacy helpers (Sumatra last — bitmap path looks dotted on pin printers)
   for (const helper of listWinPrintHelpers()) {
     try {
       if (helper.kind === 'PDFtoPrinter') {
         return printWithPdfToPrinter(helper.path, pdfPath, target, copies);
       }
       if (helper.kind === 'SumatraPDF') {
-        return printWithSumatra(helper.path, pdfPath, target, copies);
+        return printWithSumatra(helper.path, pdfPath, target, copies, settings);
       }
     } catch (err) {
       errors.push(err.message || String(err));

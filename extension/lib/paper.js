@@ -16,19 +16,21 @@ export function resolvePaper(settings = {}) {
   let width = Number(settings.pageWidth || settings.width || preset.width);
   let height = Number(settings.pageHeight || settings.height || preset.height);
 
-  // jatools: orientation 1 = portrait, 2 = landscape
-  const orientation = Number(settings.orientation || 1);
+  // jatools: orientation 1 = portrait (纵向), 2 = landscape (横向)
+  // Always honor explicit orientation — even for custom pageWidth/pageHeight.
+  // Previously custom sizes skipped the swap, so the UI "方向" looked broken.
+  const orientation = Number(settings.orientation || 1) === 2 ? 2 : 1;
   if (orientation === 2 && width < height) {
     [width, height] = [height, width];
-  } else if (orientation === 1 && width > height && !settings.pageWidth) {
-    // keep preset portrait unless custom size provided
+  } else if (orientation === 1 && width > height) {
+    [width, height] = [height, width];
   }
 
   return {
     paperName: PAPER_PRESETS[name] ? name : 'Custom',
     widthMm: width,
     heightMm: height,
-    orientation: orientation === 2 ? 2 : 1,
+    orientation,
   };
 }
 

@@ -108,7 +108,8 @@ function ensurePrintStyle(settings) {
 
 function statusLine(size) {
   const zoomLabel = zoomMode === 'fit' ? '适合窗口' : `${zoomMode}%`;
-  return `共 ${job.pages.length} 页 · ${size.width}×${size.height}mm · 预览 ${zoomLabel}（高清） · 任务 ${job.id}`;
+  const orientLabel = Number(readSettingsFromUi().orientation) === 2 ? '横向' : '纵向';
+  return `共 ${job.pages.length} 页 · ${size.width}×${size.height}mm · ${orientLabel} · 预览 ${zoomLabel} · 任务 ${job.id}`;
 }
 
 function renderJob() {
@@ -283,14 +284,21 @@ function bindUi() {
     if (printing) return;
     printing = true;
     if (els.btnPrint) els.btnPrint.disabled = true;
+    const ui = readSettingsFromUi();
     const settings = {
       ...job.settings,
-      ...readSettingsFromUi(),
+      ...ui,
     };
-    // Preserve inferred page size for the host print path
-    if (job.settings?.pageWidth) settings.pageWidth = job.settings.pageWidth;
-    if (job.settings?.pageHeight) settings.pageHeight = job.settings.pageHeight;
-    setStatus('正在高清打印…');
+    // Apply orientation to page size so host/IE get the real landscape/portrait box.
+    // Do NOT clobber with the original un-oriented job pageWidth/pageHeight.
+    const paper = resolvePaper(settings);
+    settings.pageWidth = paper.widthMm;
+    settings.pageHeight = paper.heightMm;
+    settings.orientation = paper.orientation;
+    settings.paperName = paper.paperName || settings.paperName;
+    setStatus(
+      `正在打印（${paper.orientation === 2 ? '横向' : '纵向'} ${paper.widthMm}×${paper.heightMm}mm）…`
+    );
     try {
       const res = await chrome.runtime.sendMessage({
         type: 'PRINT_FROM_PREVIEW',
@@ -401,7 +409,17 @@ async function boot() {
   }
   loadPrinters()
     .then(() => {
-      applySettingsToUi(job.settings || {});
+      // Only restore printer selection — do not wipe user's orientation/paper changes
+      const wanted = (job.settings || {}).printer || (job.settings || {}).printerName;
+      if (wanted && els.printer) {
+        if (![...els.printer.options].some((o) => o.value === wanted)) {
+          const opt = document.createElement('option');
+          opt.value = wanted;
+          opt.textContent = wanted;
+          els.printer.appendChild(opt);
+        }
+        if (!els.printer.value) els.printer.value = wanted;
+      }
       focusPrint();
     })
     .catch(() => {});

@@ -127,6 +127,10 @@
       settings.pageWidth = mm(first.width);
       settings.pageHeight = mm(first.height);
       settings.paperName = settings.paperName || 'Custom';
+      // Auto landscape when the page box is wider than tall (common for waybills)
+      if (settings.orientation == null && settings.pageWidth > settings.pageHeight) {
+        settings.orientation = 2;
+      }
       if (
         settings.marginTop == null &&
         settings.marginRight == null &&
