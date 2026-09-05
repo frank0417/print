@@ -1,7 +1,29 @@
 # PrintKit · Chrome 打印扩展（对齐 jatoolsPrinter）
 
+当前最新版：**v0.5.12**（横向可调 + 针式实心字）
+
 用 Chrome 扩展实现网页精确打印，API 对齐经典 **jatoolsPrinter / JCP**。  
-支持 **Windows / macOS 一键安装包**（内置 Node 运行时 + 打印代理 + 扩展；Windows 另含 PDFtoPrinter）。
+Windows 一键安装包内置 Node 运行时 + 打印代理 + 扩展（另含 PDFtoPrinter），兼容 **Windows 7**。
+
+## 安装最新版（Windows）
+
+用 **浏览器** 下载（不要用微信）：
+
+| 文件 | 地址 |
+| --- | --- |
+| **推荐 ZIP** | https://github.com/frank0417/print/releases/download/v0.5.12/PrintKit-Setup-windows.zip |
+| EXE 一键安装 | https://github.com/frank0417/print/releases/download/v0.5.12/PrintKit-Setup-windows.exe |
+| 全部版本 | https://github.com/frank0417/print/releases/tag/v0.5.12 |
+
+1. 把 ZIP 复制到 `C:\PrintKit-Setup`，解压（不要在微信下载目录里直接运行）
+2. 双击 `Install-PrintKit.bat`，等到出现 `Install finished`
+3. 打开 `chrome://extensions` → 开启开发者模式 →「加载已解压的扩展程序」
+4. 选择：`%LOCALAPPDATA%\PrintKit\extension`
+5. 点扩展图标，确认「本地代理」为绿点 / 已连接
+
+扩展 ID 必须是：`memmopnlapcegennpipheiadaonehljd`
+
+安装失败时运行同目录的 `Diagnose-PrintKit.bat`，把报告发回来。
 
 ## 功能
 
@@ -26,18 +48,7 @@ demo/            演示页
 dist/            构建产物（gitignore）
 ```
 
-## 快速开始（推荐：一键安装）
-
-| 系统 | 下载 | 用法 |
-| --- | --- | --- |
-| Windows | [PrintKit-Setup-windows.exe](https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-windows.exe) | **双击安装** |
-| macOS | [PrintKit-Setup-macos.command](https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-macos.command) | **双击安装** |
-| Releases | https://github.com/frank0417/print/releases | 含 ZIP 备用包 |
-
-安装程序会自动注册本地打印代理，并打开 Chrome 扩展页 / 扩展目录。  
-在 `chrome://extensions` 开启开发者模式 →「加载已解压的扩展程序」→ 选择打开的目录。
-
-扩展 ID 须为：`memmopnlapcegennpipheiadaonehljd`
+## 从源码构建安装包
 
 本地构建安装包：
 
