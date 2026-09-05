@@ -321,7 +321,8 @@ async function loadPrinters() {
     for (const p of list) {
       const opt = document.createElement('option');
       opt.value = p.name;
-      opt.textContent = p.isDefault ? `${p.name}（默认）` : p.name;
+      const portHint = p.port ? ` · ${p.port}` : '';
+      opt.textContent = p.isDefault ? `${p.name}（默认）${portHint}` : `${p.name}${portHint}`;
       els.printer.appendChild(opt);
     }
     if (current) els.printer.value = current;

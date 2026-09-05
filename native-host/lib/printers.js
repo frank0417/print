@@ -75,38 +75,181 @@ function listPrintersMac() {
   return printers;
 }
 
+function parseWinPrinterLines(raw) {
+  const printers = [];
+  for (const line of String(raw || '').split(/\r?\n/)) {
+    const text = line.trim();
+    if (!text || text.indexOf('|') < 0) continue;
+    const parts = text.split('|');
+    if (parts.length < 4) continue;
+    const name = (parts[0] || '').trim();
+    if (!name || name.toLowerCase() === 'name') continue;
+    const driver = (parts[1] || '').trim();
+    const port = (parts[2] || '').trim();
+    const isDefault = /^(true|1|yes)$/i.test((parts[3] || '').trim());
+    printers.push({
+      name,
+      id: name,
+      description: driver,
+      port,
+      isDefault,
+      source: 'windows',
+    });
+  }
+  return printers;
+}
+
+function listPrintersWinWmic() {
+  // Very old Windows fallback. Output is UTF-16LE on many systems.
+  const r = spawnSync(
+    'wmic',
+    [
+      'printer',
+      'get',
+      'Name,DriverName,PortName,Default',
+      '/format:csv',
+    ],
+    { encoding: 'buffer', windowsHide: true, maxBuffer: 10 * 1024 * 1024 }
+  );
+  if (r.status !== 0) {
+    throw new Error(`wmic 列举打印机失败: ${(r.stderr || r.stdout || Buffer.alloc(0)).toString('utf8').trim()}`);
+  }
+  let text = '';
+  try {
+    text = r.stdout.toString('utf16le');
+    if (text.indexOf('\u0000') >= 0 || !/Name/.test(text)) {
+      text = r.stdout.toString('utf8');
+    }
+  } catch (_) {
+    text = Buffer.from(r.stdout || []).toString('utf8');
+  }
+  const printers = [];
+  for (const line of text.split(/\r?\n/)) {
+    const cols = line.split(',').map((c) => c.trim());
+    // CSV: Node,Default,DriverName,Name,PortName  (order can vary)
+    if (cols.length < 4) continue;
+    if (/^Node$/i.test(cols[0]) || /Name/i.test(cols.join(',')) && /DriverName/i.test(cols.join(',')) && cols[0] === 'Node') {
+      // header row — detect indexes once
+      continue;
+    }
+  }
+  // Parse with header awareness
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return [];
+  const header = lines[0].split(',').map((c) => c.trim().toLowerCase());
+  const idxName = header.indexOf('name');
+  const idxDriver = header.indexOf('drivername');
+  const idxPort = header.indexOf('portname');
+  const idxDefault = header.indexOf('default');
+  if (idxName < 0) {
+    // Fallback: assume Name is near the end
+    for (const line of lines.slice(1)) {
+      const cols = line.split(',');
+      if (cols.length < 2) continue;
+      const name = cols[cols.length - 2] ? cols[cols.length - 2].trim() : '';
+      const port = cols[cols.length - 1] ? cols[cols.length - 1].trim() : '';
+      if (!name || /^name$/i.test(name)) continue;
+      printers.push({
+        name,
+        id: name,
+        description: '',
+        port,
+        isDefault: false,
+        source: 'windows-wmic',
+      });
+    }
+    return printers;
+  }
+  for (const line of lines.slice(1)) {
+    const cols = line.split(',');
+    const name = (cols[idxName] || '').trim();
+    if (!name) continue;
+    printers.push({
+      name,
+      id: name,
+      description: idxDriver >= 0 ? (cols[idxDriver] || '').trim() : '',
+      port: idxPort >= 0 ? (cols[idxPort] || '').trim() : '',
+      isDefault: idxDefault >= 0 ? /TRUE/i.test(cols[idxDefault] || '') : false,
+      source: 'windows-wmic',
+    });
+  }
+  return printers;
+}
+
 function listPrintersWin() {
+  // PowerShell 2.0 compatible: avoid Get-CimInstance / ConvertTo-Json.
+  // Emit pipe-delimited rows so Node can parse without JSON.
   const script = `
 $ErrorActionPreference = 'SilentlyContinue'
-$default = [string](Get-CimInstance Win32_Printer -Filter "Default=TRUE" | Select-Object -ExpandProperty Name)
-$list = @(Get-CimInstance Win32_Printer | Select-Object Name, DriverName, PortName)
-@{ defaultName = $default; printers = $list } | ConvertTo-Json -Compress -Depth 3
+function Get-PrintKitPrinters {
+  try { return @(Get-WmiObject -Class Win32_Printer) } catch {}
+  try { return @(Get-CimInstance -ClassName Win32_Printer) } catch {}
+  return @()
+}
+$list = Get-PrintKitPrinters
+foreach ($p in $list) {
+  $name = [string]$p.Name
+  if ([string]::IsNullOrEmpty($name)) { continue }
+  $driver = [string]$p.DriverName
+  $port = [string]$p.PortName
+  $def = 'false'
+  if ($p.Default) { $def = 'true' }
+  Write-Output ($name + '|' + $driver + '|' + $port + '|' + $def)
+}
 `;
+
   const r = spawnSync(
     'powershell.exe',
     ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
     { encoding: 'utf8', windowsHide: true, maxBuffer: 10 * 1024 * 1024 }
   );
-  if (r.status !== 0) {
-    throw new Error(`列举打印机失败: ${(r.stderr || r.stdout || '').trim()}`);
+
+  let printers = [];
+  if (r.status === 0) {
+    printers = parseWinPrinterLines(r.stdout);
   }
 
-  const raw = (r.stdout || '').trim();
-  if (!raw) return [];
-  const parsed = JSON.parse(raw);
-  const defaultName = parsed.defaultName || null;
-  let data = parsed.printers || parsed;
-  if (!Array.isArray(data)) data = data ? [data] : [];
-  return data
-    .filter((p) => p && p.Name)
-    .map((p) => ({
-      name: p.Name,
-      id: p.Name,
-      description: p.DriverName || '',
-      port: p.PortName || '',
-      isDefault: p.Name === defaultName,
-      source: 'windows',
-    }));
+  if (!printers.length) {
+    try {
+      printers = listPrintersWinWmic();
+    } catch (err) {
+      const detail = ((r.stderr || r.stdout || '') + ' | ' + (err.message || String(err))).trim();
+      throw new Error(`列举打印机失败: ${detail}`);
+    }
+  }
+
+  if (!printers.some((p) => p.isDefault) && printers.length) {
+    printers[0].isDefault = true;
+  }
+  return printers;
+}
+
+function resolveWinPrinterTarget(printer) {
+  const wanted = String(printer || '').trim();
+  if (!wanted) return null;
+  let printers = [];
+  try {
+    printers = listPrintersWin();
+  } catch (_) {
+    return wanted;
+  }
+  const exact = printers.find((p) => p.name === wanted);
+  if (exact) return exact.name;
+
+  // Allow selecting network printers by IP / port text, e.g. 192.168.1.69
+  const byPort = printers.find(
+    (p) => p.port && (p.port === wanted || p.port.indexOf(wanted) >= 0)
+  );
+  if (byPort) return byPort.name;
+
+  const byName = printers.find(
+    (p) =>
+      p.name.toLowerCase().indexOf(wanted.toLowerCase()) >= 0 ||
+      (p.description && p.description.toLowerCase().indexOf(wanted.toLowerCase()) >= 0)
+  );
+  if (byName) return byName.name;
+
+  return wanted;
 }
 
 function listPrintersLinux() {
@@ -245,7 +388,7 @@ for ($i = 0; $i -lt $copies; $i++) {
 }
 
 function printPdfWin({ pdfPath, printer, copies, settings }) {
-  let target = printer;
+  let target = resolveWinPrinterTarget(printer);
   if (!target) {
     try {
       const d = spawnSync(
@@ -295,4 +438,5 @@ module.exports = {
   printPdf,
   which,
   listWinPrintHelpers,
+  resolveWinPrinterTarget,
 };

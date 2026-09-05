@@ -10,7 +10,7 @@ ShowInstDetails show
 !include "FileFunc.nsh"
 
 !define PRODUCT_NAME "PrintKit"
-!define PRODUCT_VERSION "0.5.4"
+!define PRODUCT_VERSION "0.5.5"
 !define SETUP_STAGE "@@SETUP_STAGE@@"
 !define OUT_FILE "@@OUT_FILE@@"
 
