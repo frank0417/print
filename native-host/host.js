@@ -135,8 +135,8 @@ async function handle(msg) {
     }
 
     case 'prewarm': {
-      const info = await prewarmChrome();
-      return { ok: true, prewarmed: true, ...info };
+      const info = await prewarmChromeSafe();
+      return Object.assign({ ok: true, prewarmed: true }, info);
     }
 
     case 'print': {

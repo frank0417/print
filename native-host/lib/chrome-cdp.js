@@ -228,22 +228,25 @@ async function htmlToPdfViaCdp({ htmlPath, pdfPath, settings }) {
     await sleep(80);
 
     const paper = resolvePaper(settings);
+    const margins = paper.margins || {};
     const result = await cdp.send(
       'Page.printToPDF',
       {
         printBackground: true,
         preferCSSPageSize: true,
         displayHeaderFooter: false,
+        scale: 1,
         paperWidth: paper.width / 25.4,
         paperHeight: paper.height / 25.4,
-        marginTop: 0,
-        marginBottom: 0,
-        marginLeft: 0,
-        marginRight: 0,
+        marginTop: Number(margins.top || 0) / 25.4,
+        marginBottom: Number(margins.bottom || 0) / 25.4,
+        marginLeft: Number(margins.left || 0) / 25.4,
+        marginRight: Number(margins.right || 0) / 25.4,
+        transferMode: 'ReturnAsBase64',
       },
       sessionId
     );
-    if (!result?.data) throw new Error('Page.printToPDF 无数据');
+    if (!result || !result.data) throw new Error('Page.printToPDF 无数据');
     fs.writeFileSync(pdfPath, Buffer.from(result.data, 'base64'));
     return pdfPath;
   } finally {

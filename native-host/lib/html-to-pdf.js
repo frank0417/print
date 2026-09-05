@@ -117,6 +117,14 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
       margin: 0;
       padding: 0;
       background: #fff;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+      text-rendering: geometricPrecision;
+      -webkit-font-smoothing: antialiased;
+    }
+    body {
+      font-smooth: always;
     }
     .pk-page {
       width: 100%;
@@ -127,6 +135,17 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
     .pk-page:last-child {
       page-break-after: auto;
       break-after: auto;
+    }
+    img, svg, canvas, video {
+      max-width: 100%;
+      height: auto;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    /* Keep barcodes / stamps sharp when marked */
+    img.barcode, img.qrcode, img[data-sharp="1"], .barcode img, .qrcode img {
+      image-rendering: crisp-edges;
+      image-rendering: -webkit-optimize-contrast;
     }
     * {
       scrollbar-width: none !important;
