@@ -3,7 +3,7 @@
  * Injected into every page so business code can call:
  *   jatoolsPrinter.printPreview(myDoc)
  *   jatoolsPrinter.print(myDoc, showDialog)
- *   getJCP().then(jcp => jcp.printPreview(myDoc))
+ *   getJCP().printPreview(myDoc)  /  getJCP().then(jcp => jcp.printPreview(myDoc))
  */
 (function injectPrintKit() {
   if (window.__printKitInjected) return;
@@ -72,7 +72,8 @@
     }
 
     const settings = { ...(myDoc.settings || {}) };
-    const prefix = myDoc.page_div_prefix || myDoc.pageDivPrefix || '';
+    const prefix =
+      myDoc.page_div_prefix || myDoc.pageDivPrefix || myDoc.pagePrefix || '';
     let pagesHtml = [];
     let stylesheets = [];
     let title = myDoc.title || document.title || '打印文档';
@@ -111,6 +112,40 @@
         width: el.offsetWidth || null,
         height: el.offsetHeight || null,
       }));
+    }
+
+    // Infer label/paper size from the first page box (px → mm @96dpi).
+    // Defaulting to A4 then "fit to" a 100×180mm waybill printer is the #1 blur cause.
+    const hasCustomSize =
+      settings.pageWidth != null ||
+      settings.pageHeight != null ||
+      settings.width != null ||
+      settings.height != null;
+    const first = pagesHtml[0];
+    if (!hasCustomSize && first && first.width > 40 && first.height > 40) {
+      const mm = (px) => Math.round(((Number(px) * 25.4) / 96) * 100) / 100;
+      settings.pageWidth = mm(first.width);
+      settings.pageHeight = mm(first.height);
+      settings.paperName = settings.paperName || 'Custom';
+      // Auto landscape when the page box is wider than tall (common for waybills)
+      if (settings.orientation == null && settings.pageWidth > settings.pageHeight) {
+        settings.orientation = 2;
+      }
+      if (
+        settings.marginTop == null &&
+        settings.marginRight == null &&
+        settings.marginBottom == null &&
+        settings.marginLeft == null &&
+        settings.topMargin == null &&
+        settings.rightMargin == null &&
+        settings.bottomMargin == null &&
+        settings.leftMargin == null
+      ) {
+        settings.marginTop = 0;
+        settings.marginRight = 0;
+        settings.marginBottom = 0;
+        settings.marginLeft = 0;
+      }
     }
 
     // Overlay / 套打底图：仅预览可见
@@ -178,7 +213,7 @@
      * 打印（对齐 jatoolsPrinter.print）
      * @param {object} myDoc
      * @param {boolean} [showDialog=true]
-     *   true  → 打开预览并调系统打印对话框
+     *   true  → 打开预览；预览窗点「打印」走本地代理
      *   false → 本地代理静默打印；未安装时弹出安装说明（不自动回退）
      */
     print(myDoc, showDialog = true) {
@@ -238,10 +273,51 @@
   window.printKit = api;
   window.PrintKit = api;
 
-  // JCP-style promise getter
+  /**
+   * Dual-compat getter. Must be a plain object (not a Promise instance):
+   *   getJCP().printPreview(myDoc)           — classic JSP / jcpfree.js
+   *   getJCP().then(jcp => jcp.printPreview) — Promise style
+   * Extra properties on native Promise are stripped by .then / Promise.resolve.
+   */
+  function wrapJcp(apiObj) {
+    const wrapped = {
+      printPreview(myDoc, _progress) {
+        return apiObj.printPreview(myDoc);
+      },
+      print(myDoc, showDialog) {
+        return apiObj.print(myDoc, showDialog);
+      },
+      getPrinters(options) {
+        return apiObj.getPrinters(options);
+      },
+      getDefaultPrinter() {
+        return apiObj.getDefaultPrinter();
+      },
+      getHostStatus() {
+        return apiObj.getHostStatus();
+      },
+      openInstallGuide(reason) {
+        return apiObj.openInstallGuide(reason);
+      },
+      isInstalled() {
+        return apiObj.isInstalled ? apiObj.isInstalled() : true;
+      },
+      version: apiObj.version,
+      then(resolve, reject) {
+        return Promise.resolve(apiObj).then(resolve, reject);
+      },
+      catch(reject) {
+        return Promise.resolve(apiObj).catch(reject);
+      },
+    };
+    return wrapped;
+  }
+
   window.getJCP = function getJCP() {
-    return Promise.resolve(api);
+    return wrapJcp(api);
   };
+  window.getJatoolsPrinter = window.getJCP;
+  window.declareJatoolsPrinter = function declareJatoolsPrinter() {};
 
   window.dispatchEvent(new CustomEvent('printkit-ready', { detail: { version: api.version } }));
 })();

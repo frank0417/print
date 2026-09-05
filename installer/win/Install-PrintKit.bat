@@ -2,6 +2,24 @@
 setlocal EnableExtensions
 cd /d "%~dp0"
 
+echo Starting PrintKit installer...
+echo Folder: %~dp0
+echo Log: %TEMP%\PrintKit-install.log
+echo.
+
+REM Prefer pure CMD installer on Windows 7 / when PowerShell is old
+if exist "%~dp0Install-PrintKit-Cmd.bat" (
+  call "%~dp0Install-PrintKit-Cmd.bat"
+  set ERR=%ERRORLEVEL%
+  if "%ERR%"=="0" (
+    endlocal
+    exit /b 0
+  )
+  echo.
+  echo CMD installer failed ^(exit %ERR%^). Trying PowerShell fallback...
+  echo.
+)
+
 if not exist "%~dp0Install-PrintKit.ps1" (
   echo ERROR: Install-PrintKit.ps1 not found.
   echo Run this from the extracted PrintKit-Setup-windows folder.
@@ -9,20 +27,21 @@ if not exist "%~dp0Install-PrintKit.ps1" (
   exit /b 1
 )
 
-echo Starting PrintKit installer...
-echo Folder: %~dp0
-echo.
+powershell.exe -NoProfile -NoLogo -ExecutionPolicy Bypass -File "%~dp0Install-PrintKit.ps1"
+set ERR=%ERRORLEVEL%
 
-powershell.exe -NoProfile -NoLogo -ExecutionPolicy Bypass -Command ^
-  "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; & '%~dp0Install-PrintKit.ps1'"
-
-if errorlevel 1 (
+if not "%ERR%"=="0" (
   echo.
-  echo Install failed. See errors above.
-  echo If text looks garbled, re-download the ZIP from GitHub Releases
-  echo instead of copying through WeChat.
+  echo Install failed ^(exit %ERR%^). See errors above.
+  echo Log file: %TEMP%\PrintKit-install.log
+  echo.
+  echo Tips:
+  echo  - Re-download ZIP from GitHub Releases, do NOT use WeChat
+  echo  - Extract fully, then double-click Install-PrintKit.bat
+  echo  - Or run Install-PrintKit-Cmd.bat directly
+  echo  - Close Chrome, delete %%LOCALAPPDATA%%\PrintKit, retry
   pause
-  exit /b 1
+  exit /b %ERR%
 )
 
 endlocal

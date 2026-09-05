@@ -17,6 +17,19 @@ const { htmlJobToPdf } = require('./lib/html-to-pdf');
 
 const MAX_MESSAGE = 1024 * 1024 * 64; // 64MB
 
+function nodeMajor() {
+  return parseInt(String(process.versions.node || '0').split('.')[0], 10) || 0;
+}
+
+function prewarmChromeSafe() {
+  // chrome-cdp.js uses fetch/WebSocket/optional chaining — only load on Node 18+
+  if (nodeMajor() < 18) {
+    return Promise.resolve({ skipped: true, reason: 'node<' + process.versions.node });
+  }
+  const cdp = require('./lib/chrome-cdp');
+  return cdp.prewarmChrome();
+}
+
 function log(...args) {
   try {
     const line = `[${new Date().toISOString()}] ${args
@@ -87,28 +100,31 @@ function writeMessage(obj) {
 }
 
 async function handle(msg) {
-  const action = msg?.action || msg?.type;
+  const action = (msg && (msg.action || msg.type)) || '';
   switch (action) {
     case 'ping':
       return {
         ok: true,
         pong: true,
-        version: '0.2.0',
+        version: '0.2.4',
         platform: process.platform,
         arch: process.arch,
+        node: process.version,
       };
 
     case 'getHostInfo':
       return {
         ok: true,
-        version: '0.2.0',
+        version: '0.2.4',
         platform: process.platform,
         arch: process.arch,
         node: process.version,
         tmpdir: os.tmpdir(),
       };
 
-    case 'getPrinters': {
+    case 'getPrinters':
+    case 'listPrinters':
+    case 'getPrinterList': {
       const printers = await listPrinters();
       return { ok: true, printers };
     }
@@ -116,6 +132,11 @@ async function handle(msg) {
     case 'getDefaultPrinter': {
       const printer = await getDefaultPrinter();
       return { ok: true, printer };
+    }
+
+    case 'prewarm': {
+      const info = await prewarmChromeSafe();
+      return Object.assign({ ok: true, prewarmed: true }, info);
     }
 
     case 'print': {
@@ -136,6 +157,7 @@ async function doPrint(payload) {
 
   try {
     let pdfPath = payload.pdfPath || null;
+    let htmlPath = payload.htmlPath || null;
 
     if (!pdfPath && payload.pdfBase64) {
       pdfPath = path.join(jobDir, 'job.pdf');
@@ -143,24 +165,33 @@ async function doPrint(payload) {
     }
 
     if (!pdfPath) {
-      pdfPath = await htmlJobToPdf({
+      const made = await htmlJobToPdf({
         jobDir,
         title: payload.title || 'PrintKit',
         pages: payload.pages || [],
         stylesheets: payload.stylesheets || [],
         settings,
       });
+      // htmlJobToPdf may return string (legacy) or { pdfPath, htmlPath }
+      if (typeof made === 'string') {
+        pdfPath = made;
+        htmlPath = path.join(jobDir, 'job.html');
+      } else {
+        pdfPath = made.pdfPath;
+        htmlPath = made.htmlPath || path.join(jobDir, 'job.html');
+      }
     }
 
     const printResult = await printPdf({
       pdfPath,
       printer,
       copies,
-      settings,
+      settings: Object.assign({}, settings, { htmlPath: htmlPath }),
     });
 
     return {
       pdfPath,
+      htmlPath: htmlPath || null,
       printer: printResult.printer,
       copies,
       method: printResult.method,
@@ -202,6 +233,9 @@ async function main() {
     log('recv', { action: msg.action || msg.type });
     try {
       const result = await handle(msg);
+      if (msg.requestId && result && typeof result === 'object') {
+        result.requestId = msg.requestId;
+      }
       writeMessage(result);
       log('send ok', { action: msg.action || msg.type });
     } catch (err) {

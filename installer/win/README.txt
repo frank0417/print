@@ -1,25 +1,22 @@
-PrintKit Windows Setup (all-in-one)
-===================================
+PrintKit Windows Setup (Win7 compatible)
+========================================
 
-Included: Chrome extension, native print host, Node.js runtime, PDFtoPrinter.exe
+Your diagnose showed: node.exe NO / host.js NO
+= PrintKit was NOT installed yet.
 
-Install
+MUST DO
 -------
-1. Download PrintKit-Setup-windows.zip from GitHub Releases (do NOT re-zip via WeChat)
-2. Extract to a short path, e.g. C:\PrintKit-Setup-windows
-3. Double-click Install-PrintKit.bat
-4. chrome://extensions -> Developer mode ON -> Load unpacked
-5. Select: %LOCALAPPDATA%\PrintKit\extension
-6. Extension ID must be: memmopnlapcegennpipheiadaonehljd
+1. Download from GitHub Releases (browser, NOT WeChat):
+   https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-windows.zip
+2. Copy ZIP to C:\PrintKit-Setup\
+3. Extract fully
+4. Double-click Install-PrintKit.bat
+   (or Install-PrintKit-Cmd.bat)
+5. Wait until you see "Install finished"
+6. chrome://extensions -> Developer mode -> Load unpacked
+   Folder: %LOCALAPPDATA%\PrintKit\extension
+7. Expected ID: memmopnlapcegennpipheiadaonehljd
 
-Download
---------
-https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-windows.zip
+If still failing, run Diagnose-PrintKit.bat and send the report.
 
-Uninstall
----------
-Run Uninstall-PrintKit.ps1 in PowerShell
-
-If Install-PrintKit.bat shows garbled text or parser errors:
-- Re-download the ZIP from GitHub (WeChat may corrupt .ps1 encoding)
-- Extract again and run Install-PrintKit.bat
+This build uses Node 12 + pure CMD installer for Windows 7.

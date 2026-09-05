@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PrintKit 安装完成</title>
+    <style>
+      :root {
+        --ink: #152033;
+        --muted: #5a6578;
+        --line: #d5dbe7;
+        --accent: #1f4fd6;
+        --ok: #1b7a4a;
+        --bg: #eef3fb;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font: 15px/1.55 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(900px 420px at 12% -10%, #d9e6ff 0%, transparent 55%),
+          radial-gradient(700px 380px at 100% 0%, #dff5ea 0%, transparent 50%),
+          linear-gradient(180deg, #f7faff 0%, var(--bg) 100%);
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 40px 20px 64px;
+      }
+      .brand {
+        font-size: 13px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+        font-weight: 700;
+        margin-bottom: 8px;
+      }
+      h1 { margin: 0 0 8px; font-size: 28px; }
+      .lead { margin: 0 0 24px; color: var(--muted); }
+      .ok {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: #e7f7ee;
+        color: var(--ok);
+        font-weight: 600;
+        font-size: 13px;
+        margin-bottom: 20px;
+      }
+      .ok::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--ok);
+      }
+      section {
+        background: rgba(255, 255, 255, 0.82);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 18px 20px;
+        margin-bottom: 14px;
+        backdrop-filter: blur(6px);
+      }
+      h2 { margin: 0 0 10px; font-size: 16px; }
+      ol { margin: 0; padding-left: 20px; }
+      li { margin: 8px 0; }
+      code, .path {
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 12.5px;
+        background: #f1f4fa;
+        padding: 2px 6px;
+        border-radius: 6px;
+        word-break: break-all;
+      }
+      .path-box {
+        margin-top: 10px;
+        padding: 12px;
+        border-radius: 10px;
+        background: #f4f7fc;
+        border: 1px dashed #b8c4d8;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+      button, a.btn {
+        appearance: none;
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--ink);
+        border-radius: 10px;
+        padding: 10px 14px;
+        font: inherit;
+        cursor: pointer;
+        text-decoration: none;
+      }
+      button.primary, a.btn.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      .note {
+        color: var(--muted);
+        font-size: 13px;
+        margin: 10px 0 0;
+      }
+      #copied {
+        display: none;
+        color: var(--ok);
+        font-size: 13px;
+        font-weight: 600;
+      }
+      #copied.show { display: inline; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">PrintKit</div>
+      <div class="ok">本地打印代理已安装</div>
+      <h1>还差一步：加载 Chrome 扩展</h1>
+      <p class="lead">
+        由于 Chrome 安全限制，扩展需手动「加载已解压的扩展程序」一次。完成后即可静默打印。
+      </p>
+
+      <section>
+        <h2>操作步骤</h2>
+        <ol>
+          <li>打开 <code>chrome://extensions</code>（安装程序一般已自动打开）</li>
+          <li>右上角开启「开发者模式」</li>
+          <li>点击「加载已解压的扩展程序」</li>
+          <li>选择下方扩展目录（路径已复制到剪贴板）</li>
+          <li>确认扩展 ID 为 <code>memmopnlapcegennpipheiadaonehljd</code></li>
+        </ol>
+        <div class="path-box">
+          <div>扩展目录</div>
+          <div class="path" id="extPath">（安装后自动填写）</div>
+          <div class="actions">
+            <button type="button" class="primary" id="btnCopy">复制路径</button>
+            <span id="copied">已复制</span>
+          </div>
+        </div>
+        <p class="note">
+          Windows 默认：<code>%LOCALAPPDATA%\PrintKit\extension</code><br />
+          macOS 默认：<code>~/Library/Application Support/PrintKit/extension</code>
+        </p>
+      </section>
+
+      <section>
+        <h2>快捷操作</h2>
+        <div class="actions">
+          <a class="btn primary" href="chrome://extensions" id="btnExt">打开扩展页</a>
+          <a class="btn" href="https://github.com/frank0417/print/releases" target="_blank" rel="noopener"
+            >GitHub Releases</a
+          >
+        </div>
+        <p class="note">若「打开扩展页」无效，请在浏览器地址栏手动输入 chrome://extensions</p>
+      </section>
+    </main>
+    <script>
+      (function () {
+        var params = new URLSearchParams(location.search);
+        var path = params.get('path') || '';
+        var el = document.getElementById('extPath');
+        if (path) el.textContent = path;
+
+        function copy() {
+          var text = path || el.textContent;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(showCopied).catch(fallback);
+          } else {
+            fallback();
+          }
+          function fallback() {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (e) {}
+            document.body.removeChild(ta);
+            showCopied();
+          }
+          function showCopied() {
+            document.getElementById('copied').classList.add('show');
+          }
+        }
+
+        document.getElementById('btnCopy').addEventListener('click', copy);
+        if (path) {
+          try { copy(); } catch (e) {}
+        }
+      })();
+    </script>
+  </body>
+</html>

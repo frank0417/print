@@ -1,5 +1,6 @@
 'use strict';
 
+const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
@@ -56,15 +57,20 @@ function resolvePaper(settings = {}) {
   const preset = PAPER_PRESETS[name] || PAPER_PRESETS.A4;
   let width = Number(settings.pageWidth || settings.width || preset.width);
   let height = Number(settings.pageHeight || settings.height || preset.height);
-  const orientation = Number(settings.orientation || 1);
+  // 1 = portrait (纵向), 2 = landscape (横向). Always apply — custom sizes included.
+  const orientation = Number(settings.orientation || 1) === 2 ? 2 : 1;
   if (orientation === 2 && width < height) {
     [width, height] = [height, width];
+  } else if (orientation === 1 && width > height) {
+    [width, height] = [height, width];
   }
+  // Default 0mm — continuous-form / pin printers blur when content is
+  // letterboxed then "fit to page" by the driver.
   const margins = {
-    top: num(settings.marginTop, 10),
-    right: num(settings.marginRight, 10),
-    bottom: num(settings.marginBottom, 10),
-    left: num(settings.marginLeft, 10),
+    top: num(settings.marginTop, 0),
+    right: num(settings.marginRight, 0),
+    bottom: num(settings.marginBottom, 0),
+    left: num(settings.marginLeft, 0),
   };
   return { name, width, height, orientation, margins };
 }
@@ -106,6 +112,7 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
 <head>
   <meta charset="utf-8" />
   <title>${escapeHtml(title || 'PrintKit')}</title>
+  ${styleTags.join('\n')}
   <style>
     @page {
       size: ${paper.width}mm ${paper.height}mm;
@@ -115,21 +122,69 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
       margin: 0;
       padding: 0;
       background: #fff;
+      color: #000;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+      /* Pin printers: soft ClearType edges become broken dots */
+      -webkit-font-smoothing: none;
+      font-smooth: never;
+      text-rendering: optimizeSpeed;
+      text-shadow: none;
+    }
+    body, table, td, th, div, span, p, font {
+      font-smooth: never;
+      -webkit-font-smoothing: none;
+      text-shadow: none;
+    }
+    @media print {
+      html, body, table, td, th, div, span, p, font {
+        color: #000 !important;
+        -webkit-font-smoothing: none !important;
+        font-smooth: never !important;
+        text-shadow: none !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
     }
     .pk-page {
-      width: ${paper.width - paper.margins.left - paper.margins.right}mm;
-      min-height: ${paper.height - paper.margins.top - paper.margins.bottom}mm;
+      width: 100%;
+      box-sizing: border-box;
       page-break-after: always;
       break-after: page;
-      overflow: hidden;
-      box-sizing: border-box;
+    }
+    img, canvas, svg {
+      image-rendering: -webkit-optimize-contrast;
+      image-rendering: crisp-edges;
+      max-width: 100%;
+    }
+    @media print {
+      html, body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     }
     .pk-page:last-child {
       page-break-after: auto;
       break-after: auto;
     }
+    img, svg, canvas, video {
+      max-width: 100%;
+      height: auto;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    /* Keep barcodes / stamps sharp when marked */
+    img.barcode, img.qrcode, img[data-sharp="1"], .barcode img, .qrcode img {
+      image-rendering: crisp-edges;
+      image-rendering: -webkit-optimize-contrast;
+    }
+    * {
+      scrollbar-width: none !important;
+    }
+    *::-webkit-scrollbar {
+      width: 0 !important;
+      height: 0 !important;
+      display: none !important;
+    }
   </style>
-  ${styleTags.join('\n')}
 </head>
 <body>
 ${pageHtml}
@@ -150,20 +205,82 @@ async function htmlJobToPdf({ jobDir, title, pages, stylesheets, settings }) {
   const html = buildHtmlDocument({ title, pages, stylesheets, settings });
   fs.writeFileSync(htmlPath, html, 'utf8');
 
-  // file:// URL
+  try {
+    // CDP path needs Node 18+ (fetch/WebSocket). On older Node (Win7/Node12) skip it.
+    const major = parseInt(String(process.versions.node || '0').split('.')[0], 10) || 0;
+    if (major >= 18) {
+      const { htmlToPdfViaCdp } = require('./chrome-cdp');
+      const t0 = Date.now();
+      await htmlToPdfViaCdp({ htmlPath, pdfPath, settings });
+      if (fs.existsSync(pdfPath)) {
+        try {
+          fs.appendFileSync(
+            path.join(os.tmpdir(), 'printkit-host.log'),
+            `[${new Date().toISOString()}] html-to-pdf cdp ${Date.now() - t0}ms\n`
+          );
+        } catch (_) {
+          /* ignore */
+        }
+        return { pdfPath: pdfPath, htmlPath: htmlPath };
+      }
+    } else {
+      try {
+        fs.appendFileSync(
+          path.join(os.tmpdir(), 'printkit-host.log'),
+          `[${new Date().toISOString()}] html-to-pdf skip cdp (node ${process.versions.node})\n`
+        );
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  } catch (err) {
+    try {
+      fs.appendFileSync(
+        path.join(os.tmpdir(), 'printkit-host.log'),
+        `[${new Date().toISOString()}] html-to-pdf cdp failed: ${err.message || err}\n`
+      );
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
   const fileUrl =
     process.platform === 'win32'
       ? 'file:///' + htmlPath.replace(/\\/g, '/')
       : 'file://' + htmlPath;
 
+  const profileDir = path.join(os.tmpdir(), 'printkit-chrome-profile');
+  fs.mkdirSync(profileDir, { recursive: true });
+
   const args = [
-    '--headless=new',
+    '--headless',
     '--disable-gpu',
+    '--disable-software-rasterizer',
     '--no-first-run',
     '--no-default-browser-check',
+    '--disable-extensions',
+    '--disable-background-networking',
+    '--disable-sync',
+    '--disable-translate',
+    '--disable-default-apps',
+    '--disable-component-update',
+    '--metrics-recording-only',
+    '--mute-audio',
+    '--no-pings',
+    '--hide-scrollbars',
     '--allow-file-access-from-files',
+    // Sharper PDF text/fonts on Windows 7 Chrome
+    '--font-render-hinting=none',
+    '--enable-font-antialiasing',
+    '--run-all-compositor-stages-before-draw',
+    '--disable-lcd-text',
+    '--force-device-scale-factor=1',
+    '--default-background-color=FFFFFFFF',
+    `--user-data-dir=${profileDir}`,
     `--print-to-pdf=${pdfPath}`,
     '--no-pdf-header-footer',
+    // Give fonts/images more time before snapshot
+    '--virtual-time-budget=8000',
     fileUrl,
   ];
 
@@ -179,7 +296,7 @@ async function htmlJobToPdf({ jobDir, title, pages, stylesheets, settings }) {
       `HTML 转 PDF 失败: ${(r.stderr || r.stdout || `exit ${r.status}`).toString().trim()}`
     );
   }
-  return pdfPath;
+  return { pdfPath: pdfPath, htmlPath: htmlPath };
 }
 
 module.exports = {

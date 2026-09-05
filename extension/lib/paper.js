@@ -16,19 +16,21 @@ export function resolvePaper(settings = {}) {
   let width = Number(settings.pageWidth || settings.width || preset.width);
   let height = Number(settings.pageHeight || settings.height || preset.height);
 
-  // jatools: orientation 1 = portrait, 2 = landscape
-  const orientation = Number(settings.orientation || 1);
+  // jatools: orientation 1 = portrait (纵向), 2 = landscape (横向)
+  // Always honor explicit orientation — even for custom pageWidth/pageHeight.
+  // Previously custom sizes skipped the swap, so the UI "方向" looked broken.
+  const orientation = Number(settings.orientation || 1) === 2 ? 2 : 1;
   if (orientation === 2 && width < height) {
     [width, height] = [height, width];
-  } else if (orientation === 1 && width > height && !settings.pageWidth) {
-    // keep preset portrait unless custom size provided
+  } else if (orientation === 1 && width > height) {
+    [width, height] = [height, width];
   }
 
   return {
     paperName: PAPER_PRESETS[name] ? name : 'Custom',
     widthMm: width,
     heightMm: height,
-    orientation: orientation === 2 ? 2 : 1,
+    orientation,
   };
 }
 
@@ -37,15 +39,16 @@ export function mmToCss(mm) {
 }
 
 export function normalizeMargins(settings = {}) {
-  const n = (v, fallback = 10) => {
+  // Default 0mm — label/waybill printers blur badly with 10mm + fit-to-page.
+  const n = (v, fallback = 0) => {
     if (v === 0 || v === '0') return 0;
     const num = Number(v);
     return Number.isFinite(num) ? num : fallback;
   };
   return {
-    top: n(settings.marginTop ?? settings.topMargin, 10),
-    right: n(settings.marginRight ?? settings.rightMargin, 10),
-    bottom: n(settings.marginBottom ?? settings.bottomMargin, 10),
-    left: n(settings.marginLeft ?? settings.leftMargin, 10),
+    top: n(settings.marginTop ?? settings.topMargin, 0),
+    right: n(settings.marginRight ?? settings.rightMargin, 0),
+    bottom: n(settings.marginBottom ?? settings.bottomMargin, 0),
+    left: n(settings.marginLeft ?? settings.leftMargin, 0),
   };
 }
