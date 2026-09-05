@@ -48,7 +48,7 @@ Section "Install"
 
   DetailPrint "Running silent install (CMD, Win7-safe)..."
   ; Prefer pure CMD installer - works on Windows 7 / PowerShell 2.0
-  nsExec::ExecToLog '"$SYSDIR\cmd.exe" /C ""$LOCALAPPDATA\PrintKit-Setup-Staging\Install-PrintKit-Cmd.bat" /S ^Install-PrintKit-Cmd.bat" ^& exit exit /b %ERRORLEVEL%"'
+  nsExec::ExecToLog '"$SYSDIR\cmd.exe" /C ""$LOCALAPPDATA\PrintKit-Setup-Staging\Install-PrintKit-Cmd.bat" /S & exit /b %ERRORLEVEL%"'
   Pop $PrintKitExit
   DetailPrint "Installer exit code: $PrintKitExit"
 
