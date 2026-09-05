@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>套打票据 Demo · PrintKit</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+        background: #eef2f7;
+        color: #1b2433;
+      }
+      .bar {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 14px 16px;
+        background: #fff;
+        border-bottom: 1px solid #d7dee8;
+      }
+      button {
+        border: 1px solid #d7dee8;
+        background: #fff;
+        border-radius: 8px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font: inherit;
+      }
+      button.primary {
+        background: #1f4fd6;
+        border-color: #1f4fd6;
+        color: #fff;
+      }
+      .canvas {
+        padding: 24px;
+      }
+      /* 票据页：固定尺寸，模拟针式/热敏套打区域 */
+      #page1 {
+        position: relative;
+        width: 241mm; /* 近似二等分票据宽 */
+        height: 93mm;
+        margin: 0 auto;
+        background: #fff;
+        border: 1px dashed #9aa8bd;
+        box-shadow: 0 10px 24px rgba(27, 36, 51, 0.08);
+        overflow: hidden;
+      }
+      .bg {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(90deg, transparent 49.5%, #e8edf5 49.5%, #e8edf5 50.5%, transparent 50.5%),
+          repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 7mm,
+            rgba(180, 190, 205, 0.25) 7mm,
+            rgba(180, 190, 205, 0.25) 7.2mm
+          );
+        opacity: 0.9;
+      }
+      .field {
+        position: absolute;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+      .f-no { left: 42mm; top: 12mm; font-weight: 700; }
+      .f-date { left: 160mm; top: 12mm; }
+      .f-payee { left: 36mm; top: 28mm; }
+      .f-amount { left: 36mm; top: 44mm; font-size: 16px; font-weight: 700; }
+      .f-memo { left: 36mm; top: 62mm; color: #445066; }
+      a { color: #1f4fd6; margin-left: 8px; align-self: center; }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <button class="primary" type="button" onclick="preview()">打印预览...</button>
+      <button type="button" onclick="printNow()">直接打印</button>
+      <a href="./index.html">← 返回多页示例</a>
+    </div>
+
+    <div class="canvas">
+      <div id="page1">
+        <div class="bg" aria-hidden="true"></div>
+        <div class="field f-no">No. PK-884215</div>
+        <div class="field f-date">2026-08-18</div>
+        <div class="field f-payee">收款单位：上海示例科技有限公司</div>
+        <div class="field f-amount">¥ 12,680.00</div>
+        <div class="field f-memo">用途：软件服务费（套打定位示例）</div>
+      </div>
+    </div>
+
+    <script>
+      function doc() {
+        return {
+          documents: document,
+          copyrights: 'PrintKit ticket demo',
+          settings: {
+            paperName: 'A4',
+            orientation: 2, // 横向
+            marginTop: 5,
+            marginRight: 5,
+            marginBottom: 5,
+            marginLeft: 5,
+          },
+        };
+      }
+
+      async function api() {
+        if (window.jatoolsPrinter) return window.jatoolsPrinter;
+        await new Promise((r) => window.addEventListener('printkit-ready', r, { once: true }));
+        return window.jatoolsPrinter;
+      }
+
+      async function preview() {
+        (await api()).printPreview(doc());
+      }
+      async function printNow() {
+        (await api()).print(doc(), false);
+      }
+    </script>
+  </body>
+</html>
