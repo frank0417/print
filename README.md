@@ -25,6 +25,23 @@ Windows 一键安装包内置 Node 运行时 + 打印代理 + 扩展（另含 PD
 
 安装失败时运行同目录的 `Diagnose-PrintKit.bat`，把报告发回来。
 
+## 下载最新源码
+
+`main` 目前还是空仓库，请拉带插件的分支（不要直接 clone 默认 main）：
+
+| 方式 | 地址 |
+| --- | --- |
+| **源码 ZIP** | https://github.com/frank0417/print/archive/refs/heads/cursor/latest-printkit-6e43.zip |
+| 仓库 | https://github.com/frank0417/print |
+| 当前分支 | `cursor/latest-printkit-6e43` |
+| PR | https://github.com/frank0417/print/pull/4 |
+
+```bash
+git clone -b cursor/latest-printkit-6e43 https://github.com/frank0417/print.git
+```
+
+解压 ZIP 后目录是 `print-cursor-latest-printkit-6e43/`，里面有 `extension/`、`native-host/`、`installer/`、`demo/`。
+
 ## 功能
 
 | 能力 | 状态 | 说明 |
