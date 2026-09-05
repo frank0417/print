@@ -180,6 +180,32 @@ button:hover {
   filter: brightness(0.98);
 }
 
+.zoom {
+  display: inline-flex;
+  gap: 2px;
+  flex: 0 0 auto;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f7f8fb;
+}
+
+.zoom button {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.zoom button.active {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(26, 31, 44, 0.12);
+}
+
 .stage {
   flex: 1 1 auto;
   min-height: 0;
@@ -190,13 +216,21 @@ button:hover {
   align-items: center;
   justify-content: flex-start;
   padding: 16px;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+}
+
+.stage.scrollable {
+  overflow: auto;
 }
 
 .stage::-webkit-scrollbar {
-  display: none;
-  width: 0;
-  height: 0;
+  width: 8px;
+  height: 8px;
+}
+
+.stage::-webkit-scrollbar-thumb {
+  background: #c5ccd8;
+  border-radius: 4px;
 }
 
 .sheet-fit {
@@ -210,6 +244,8 @@ button:hover {
   overflow: hidden;
   position: relative;
   isolation: isolate;
+  /* Never use transform for on-screen scaling — it blurs text on waybills */
+  transform: none !important;
 }
 
 .sheet-inner {
@@ -277,6 +313,7 @@ button:hover {
   .sheet {
     box-shadow: none;
     transform: none !important;
+    zoom: 1 !important;
     page-break-after: always;
     break-after: page;
   }

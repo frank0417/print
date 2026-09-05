@@ -42,7 +42,7 @@ if not exist "%NODE%" (
   echo   %LOCALAPPDATA%\PrintKit
   echo.
   echo Please:
-  echo 1. Download v0.5.10 ZIP from GitHub Releases
+  echo 1. Download v0.5.11 ZIP from GitHub Releases
   echo 2. Copy to C:\PrintKit-Setup and extract
   echo 3. Double-click Install-PrintKit.bat
   echo.

@@ -61,11 +61,13 @@ function resolvePaper(settings = {}) {
   if (orientation === 2 && width < height) {
     [width, height] = [height, width];
   }
+  // Default 0mm — continuous-form / pin printers blur when content is
+  // letterboxed then "fit to page" by the driver.
   const margins = {
-    top: num(settings.marginTop, 10),
-    right: num(settings.marginRight, 10),
-    bottom: num(settings.marginBottom, 10),
-    left: num(settings.marginLeft, 10),
+    top: num(settings.marginTop, 0),
+    right: num(settings.marginRight, 0),
+    bottom: num(settings.marginBottom, 0),
+    left: num(settings.marginLeft, 0),
   };
   return { name, width, height, orientation, margins };
 }
@@ -121,10 +123,12 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
       print-color-adjust: exact !important;
       color-adjust: exact !important;
       text-rendering: geometricPrecision;
-      -webkit-font-smoothing: antialiased;
+      /* Pin/thermal printers: avoid soft antialiased glyphs */
+      -webkit-font-smoothing: none;
+      font-smooth: never;
     }
     body {
-      font-smooth: always;
+      font-smooth: never;
     }
     .pk-page {
       width: 100%;

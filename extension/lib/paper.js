@@ -37,15 +37,16 @@ export function mmToCss(mm) {
 }
 
 export function normalizeMargins(settings = {}) {
-  const n = (v, fallback = 10) => {
+  // Default 0mm — label/waybill printers blur badly with 10mm + fit-to-page.
+  const n = (v, fallback = 0) => {
     if (v === 0 || v === '0') return 0;
     const num = Number(v);
     return Number.isFinite(num) ? num : fallback;
   };
   return {
-    top: n(settings.marginTop ?? settings.topMargin, 10),
-    right: n(settings.marginRight ?? settings.rightMargin, 10),
-    bottom: n(settings.marginBottom ?? settings.bottomMargin, 10),
-    left: n(settings.marginLeft ?? settings.leftMargin, 10),
+    top: n(settings.marginTop ?? settings.topMargin, 0),
+    right: n(settings.marginRight ?? settings.rightMargin, 0),
+    bottom: n(settings.marginBottom ?? settings.bottomMargin, 0),
+    left: n(settings.marginLeft ?? settings.leftMargin, 0),
   };
 }

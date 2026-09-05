@@ -506,10 +506,142 @@ function prepareKioskPrintFile(filePath) {
 }
 
 /**
- * Print via Chrome/Edge kiosk-printing.
+ * Force Chrome silent print to 100% scale (not "fit to page").
+ * Fit-to-page is the #1 blur cause on continuous-form / pin printers.
+ */
+function seedChromePrintProfile(profileDir, opts) {
+  opts = opts || {};
+  const defDir = path.join(profileDir, 'Default');
+  try {
+    fs.mkdirSync(defDir, { recursive: true });
+  } catch (_) {
+    /* ignore */
+  }
+  const paper = opts.paper || {};
+  const widthMm = Number(paper.width) || Number(opts.pageWidth) || 210;
+  const heightMm = Number(paper.height) || Number(opts.pageHeight) || 297;
+  const wMicrons = Math.round(widthMm * 1000);
+  const hMicrons = Math.round(heightMm * 1000);
+  const printerName = opts.printer || '';
+
+  const appState = {
+    version: 2,
+    isHeaderFooterEnabled: false,
+    isCssBackgroundEnabled: true,
+    marginsType: 1, // NO_MARGINS
+    scalingType: 3, // CUSTOM → use scaling %
+    scaling: '100',
+    isLandscapeEnabled: widthMm > heightMm,
+    mediaSize: {
+      height_microns: hMicrons,
+      width_microns: wMicrons,
+      name: 'CUSTOM',
+      custom_display_name: String(widthMm) + 'x' + String(heightMm) + 'mm',
+    },
+  };
+  if (printerName) {
+    appState.selectedDestinationId = printerName;
+    appState.recentDestinations = [
+      { id: printerName, origin: 'local', account: '' },
+    ];
+  }
+
+  const prefs = {
+    printing: {
+      print_preview_sticky_settings: {
+        appState: JSON.stringify(appState),
+      },
+    },
+    browser: {
+      has_seen_welcome_page: true,
+      check_default_browser: false,
+    },
+    profile: {
+      exit_type: 'Normal',
+      exited_cleanly: true,
+    },
+  };
+  fs.writeFileSync(path.join(defDir, 'Preferences'), JSON.stringify(prefs));
+  try {
+    fs.writeFileSync(path.join(profileDir, 'First Run'), '');
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+/**
+ * IE/WebBrowser COM print — same path classic Chinese print plugins use on Win7.
+ * Sends GDI to the pin-printer driver (sharp text/lines), not a scaled bitmap.
+ */
+function printWithIeCom(htmlPath, target, copies) {
+  const prevDefault = getDefaultPrinterNameWin();
+  let changed = false;
+  if (target && prevDefault && target !== prevDefault) {
+    changed = setDefaultPrinterWin(target);
+  } else if (target && !prevDefault) {
+    changed = setDefaultPrinterWin(target);
+  }
+
+  const abs = path.resolve(htmlPath).replace(/'/g, "''");
+  const n = Math.max(1, copies || 1);
+  // PowerShell 2.0 compatible (Win7). Zero IE page margins for continuous forms.
+  const script =
+    "$ErrorActionPreference='Stop';" +
+    "New-Item -Path 'HKCU:\\Software\\Microsoft\\Internet Explorer\\PageSetup' -Force | Out-Null;" +
+    "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Internet Explorer\\PageSetup' -Name margin_left -Value '0.000000' -Force;" +
+    "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Internet Explorer\\PageSetup' -Name margin_right -Value '0.000000' -Force;" +
+    "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Internet Explorer\\PageSetup' -Name margin_top -Value '0.000000' -Force;" +
+    "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Internet Explorer\\PageSetup' -Name margin_bottom -Value '0.000000' -Force;" +
+    "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Internet Explorer\\PageSetup' -Name header -Value '' -Force;" +
+    "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Internet Explorer\\PageSetup' -Name footer -Value '' -Force;" +
+    "$html='" +
+    abs +
+    "';" +
+    "$uri=(New-Object System.Uri ((Resolve-Path -LiteralPath $html).Path)).AbsoluteUri;" +
+    "$copies=" +
+    String(n) +
+    ';' +
+    'for($c=0;$c -lt $copies;$c++){' +
+    "$ie=New-Object -ComObject InternetExplorer.Application;" +
+    '$ie.Visible=$false;' +
+    '$ie.Navigate($uri);' +
+    'while($ie.Busy -or $ie.ReadyState -ne 4){Start-Sleep -Milliseconds 200};' +
+    'Start-Sleep -Milliseconds 600;' +
+    '$ie.ExecWB(6,2);' +
+    'Start-Sleep -Seconds 3;' +
+    '$ie.Quit();' +
+    '[System.Runtime.InteropServices.Marshal]::ReleaseComObject($ie)|Out-Null;' +
+    '}';
+
+  try {
+    const r = spawnSync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+      { encoding: 'utf8', windowsHide: true, timeout: 180000 }
+    );
+    if (r.status !== 0) {
+      throw new Error('IE 打印失败: ' + spawnDetail(r));
+    }
+    return {
+      printer: target || prevDefault || 'default',
+      method: 'IE-COM-GDI',
+    };
+  } finally {
+    if (changed && prevDefault) {
+      try {
+        setDefaultPrinterWin(prevDefault);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  }
+}
+
+/**
+ * Print via Chrome/Edge kiosk-printing at forced 100% scale.
  * Uses the printer driver directly (vector/text stays sharp), unlike Sumatra's bitmap path.
  */
-function printWithChromeKiosk(filePath, target, copies) {
+function printWithChromeKiosk(filePath, target, copies, settings) {
   const chrome = require('./html-to-pdf').resolveChromePath();
   if (!chrome || !fs.existsSync(chrome)) {
     throw new Error('未找到 Chrome/Edge，无法高清打印');
@@ -532,6 +664,14 @@ function printWithChromeKiosk(filePath, target, copies) {
     /* ignore */
   }
 
+  const paper = require('./html-to-pdf').resolvePaper(settings || {});
+  seedChromePrintProfile(profileDir, {
+    printer: target || prevDefault || '',
+    paper: paper,
+    pageWidth: paper.width,
+    pageHeight: paper.height,
+  });
+
   const printFile = prepareKioskPrintFile(filePath);
   const url = toFileUrl(printFile);
   const n = Math.max(1, copies || 1);
@@ -548,7 +688,6 @@ function printWithChromeKiosk(filePath, target, copies) {
         '--disable-infobars',
         '--allow-file-access-from-files',
         '--font-render-hinting=none',
-        '--enable-font-antialiasing',
         '--force-device-scale-factor=1',
         '--user-data-dir=' + profileDir,
         '--new-window',
@@ -560,14 +699,13 @@ function printWithChromeKiosk(filePath, target, copies) {
         timeout: 120000,
         maxBuffer: 5 * 1024 * 1024,
       });
-      // Chrome may return non-zero even after successful print; only fail if it clearly crashed early
       if (r.error) {
         throw new Error('Chrome 打印启动失败: ' + r.error.message);
       }
     }
     return {
       printer: target || prevDefault || 'default',
-      method: 'Chrome-kiosk-printing',
+      method: 'Chrome-kiosk-100pct',
     };
   } finally {
     if (changed && prevDefault) {
@@ -591,18 +729,27 @@ function printPdfWin({ pdfPath, printer, copies, settings }) {
     (settings && settings.htmlPath) ||
     (pdfPath ? pdfPath.replace(/\.pdf$/i, '.html') : null);
 
-  // 1) Prefer Chrome kiosk print of HTML (sharpest on Win7)
+  // 1) IE COM GDI of HTML — matches classic plugins on Win7 pin/continuous printers
   if (htmlPath && fs.existsSync(htmlPath)) {
     try {
-      return printWithChromeKiosk(htmlPath, target, copies);
+      return printWithIeCom(htmlPath, target, copies);
     } catch (err) {
       errors.push(err.message || String(err));
     }
   }
 
-  // 2) Chrome kiosk print of PDF (still better than Sumatra bitmap)
+  // 2) Chrome kiosk HTML at forced 100% scale
+  if (htmlPath && fs.existsSync(htmlPath)) {
+    try {
+      return printWithChromeKiosk(htmlPath, target, copies, settings);
+    } catch (err) {
+      errors.push(err.message || String(err));
+    }
+  }
+
+  // 3) Chrome kiosk PDF (still better than Sumatra bitmap)
   try {
-    return printWithChromeKiosk(pdfPath, target, copies);
+    return printWithChromeKiosk(pdfPath, target, copies, settings);
   } catch (err) {
     errors.push(err.message || String(err));
   }

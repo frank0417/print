@@ -114,6 +114,36 @@
       }));
     }
 
+    // Infer label/paper size from the first page box (px → mm @96dpi).
+    // Defaulting to A4 then "fit to" a 100×180mm waybill printer is the #1 blur cause.
+    const hasCustomSize =
+      settings.pageWidth != null ||
+      settings.pageHeight != null ||
+      settings.width != null ||
+      settings.height != null;
+    const first = pagesHtml[0];
+    if (!hasCustomSize && first && first.width > 40 && first.height > 40) {
+      const mm = (px) => Math.round(((Number(px) * 25.4) / 96) * 100) / 100;
+      settings.pageWidth = mm(first.width);
+      settings.pageHeight = mm(first.height);
+      settings.paperName = settings.paperName || 'Custom';
+      if (
+        settings.marginTop == null &&
+        settings.marginRight == null &&
+        settings.marginBottom == null &&
+        settings.marginLeft == null &&
+        settings.topMargin == null &&
+        settings.rightMargin == null &&
+        settings.bottomMargin == null &&
+        settings.leftMargin == null
+      ) {
+        settings.marginTop = 0;
+        settings.marginRight = 0;
+        settings.marginBottom = 0;
+        settings.marginLeft = 0;
+      }
+    }
+
     // Overlay / 套打底图：仅预览可见
     const overlay = myDoc.dragables || myDoc.overlay || null;
 

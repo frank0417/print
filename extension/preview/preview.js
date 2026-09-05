@@ -18,13 +18,16 @@ const els = {
   btnClose: document.getElementById('btnClose'),
   btnSettings: document.getElementById('btnSettings'),
   settingsMenu: document.getElementById('settingsMenu'),
+  zoomBar: document.getElementById('zoomBar'),
 };
 
 let job = null;
 let printing = false;
+/** 'fit' | '100' | '150' | '200' — default 100% so preview stays sharp (no blurry downscale). */
+let zoomMode = '100';
 
 function setStatus(text) {
-  els.status.textContent = text;
+  if (els.status) els.status.textContent = text;
 }
 
 function readSettingsFromUi() {
@@ -42,7 +45,19 @@ function readSettingsFromUi() {
 }
 
 function applySettingsToUi(settings = {}) {
-  if (settings.paperName && PAPER_PRESETS[settings.paperName]) {
+  if (
+    settings.pageWidth ||
+    settings.pageHeight ||
+    (settings.paperName && !PAPER_PRESETS[settings.paperName])
+  ) {
+    if (![...els.paperName.options].some((o) => o.value === 'Custom')) {
+      const opt = document.createElement('option');
+      opt.value = 'Custom';
+      opt.textContent = '自定义';
+      els.paperName.appendChild(opt);
+    }
+    els.paperName.value = 'Custom';
+  } else if (settings.paperName && PAPER_PRESETS[settings.paperName]) {
     els.paperName.value = settings.paperName;
   }
   if (settings.orientation === 1 || settings.orientation === 2) {
@@ -67,7 +82,10 @@ function applySettingsToUi(settings = {}) {
 }
 
 function resolveSize(settings) {
-  const paper = resolvePaper(settings);
+  const merged = { ...settings };
+  if (merged.paperName === 'Custom') delete merged.paperName;
+  // Keep inferred pageWidth/pageHeight from inject.js
+  const paper = resolvePaper({ ...job?.settings, ...merged });
   return { width: paper.widthMm, height: paper.heightMm };
 }
 
@@ -88,10 +106,15 @@ function ensurePrintStyle(settings) {
   `;
 }
 
+function statusLine(size) {
+  const zoomLabel = zoomMode === 'fit' ? '适合窗口' : `${zoomMode}%`;
+  return `共 ${job.pages.length} 页 · ${size.width}×${size.height}mm · 预览 ${zoomLabel}（高清） · 任务 ${job.id}`;
+}
+
 function renderJob() {
   const settings = { ...job.settings, ...readSettingsFromUi() };
   const size = resolveSize(settings);
-  const margins = normalizeMargins(settings);
+  const margins = normalizeMargins({ ...job.settings, ...settings });
   ensurePrintStyle(settings);
 
   els.stage.innerHTML = '';
@@ -119,6 +142,10 @@ function renderJob() {
       * { box-sizing: border-box; scrollbar-width: none !important; }
       *::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
       html, body, div, table { overflow: hidden !important; }
+      img, canvas, svg, .barcode, [class*="barcode"] {
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: crisp-edges;
+      }
     `;
     shadow.appendChild(reset);
     for (const cssSheet of job.stylesheets || []) {
@@ -140,7 +167,7 @@ function renderJob() {
 
     const label = document.createElement('div');
     label.className = 'sheet-label no-print';
-    label.textContent = `${page.id} · ${size.width}×${size.height}mm`;
+    label.textContent = `${page.id || 'page'} · ${size.width}×${size.height}mm`;
     sheet.appendChild(label);
 
     const fit = document.createElement('div');
@@ -150,10 +177,14 @@ function renderJob() {
   }
 
   document.title = job.title || 'PrintKit';
-  setStatus(`共 ${job.pages.length} 页 · ${settings.paperName} · 任务 ${job.id}`);
+  setStatus(statusLine(size));
   requestAnimationFrame(fitSheets);
 }
 
+/**
+ * Prefer CSS `zoom` over transform:scale.
+ * transform rasterizes then scales → blurry; zoom keeps glyphs/lines sharp.
+ */
 function fitSheets() {
   const stage = els.stage;
   if (!stage) return;
@@ -164,22 +195,52 @@ function fitSheets() {
   const availH = Math.max(1, stage.clientHeight - 24);
   const gap = 16;
 
-  const sizes = sheets.map((sheet) => {
+  for (const sheet of sheets) {
     sheet.style.transform = 'none';
-    return { sheet, w: sheet.offsetWidth, h: sheet.offsetHeight };
-  });
+    sheet.style.zoom = '1';
+  }
+
+  const sizes = sheets.map((sheet) => ({
+    sheet,
+    w: sheet.offsetWidth,
+    h: sheet.offsetHeight,
+  }));
   const maxW = Math.max(...sizes.map((s) => s.w), 1);
   const totalH = sizes.reduce((sum, s) => sum + s.h, 0) + gap * (sizes.length - 1);
-  const scale = Math.min(1, availW / maxW, availH / Math.max(totalH, 1));
+
+  let scale;
+  if (zoomMode === 'fit') {
+    scale = Math.min(1, availW / maxW, availH / Math.max(totalH, 1));
+  } else {
+    scale = Math.max(0.25, Number(zoomMode) / 100 || 1);
+  }
 
   for (const { sheet, w, h } of sizes) {
     const fit = sheet.parentElement;
+    sheet.style.transform = 'none';
+    sheet.style.zoom = String(scale);
     if (fit && fit.classList.contains('sheet-fit')) {
       fit.style.width = `${Math.round(w * scale)}px`;
       fit.style.height = `${Math.round(h * scale)}px`;
     }
-    sheet.style.transformOrigin = 'top left';
-    sheet.style.transform = `scale(${scale})`;
+  }
+}
+
+function setZoomMode(mode) {
+  zoomMode = mode;
+  if (els.zoomBar) {
+    for (const btn of els.zoomBar.querySelectorAll('button[data-zoom]')) {
+      btn.classList.toggle('active', btn.getAttribute('data-zoom') === mode);
+    }
+  }
+  if (els.stage) {
+    els.stage.classList.toggle('scrollable', mode !== 'fit');
+    els.stage.style.overflow = mode === 'fit' ? 'hidden' : 'auto';
+  }
+  fitSheets();
+  if (job) {
+    const size = resolveSize({ ...job.settings, ...readSettingsFromUi() });
+    setStatus(statusLine(size));
   }
 }
 
@@ -193,9 +254,16 @@ function bindUi() {
     els.marginBottom,
     els.marginLeft,
   ]) {
-    el.addEventListener('change', renderJob);
-    el.addEventListener('input', renderJob);
+    el?.addEventListener('change', renderJob);
+    el?.addEventListener('input', renderJob);
   }
+
+  els.zoomBar?.addEventListener('click', (event) => {
+    const btn = event.target.closest('button[data-zoom]');
+    if (!btn) return;
+    event.preventDefault();
+    setZoomMode(btn.getAttribute('data-zoom'));
+  });
 
   function closeSettings() {
     if (!els.settingsMenu) return;
@@ -207,20 +275,22 @@ function bindUi() {
     if (!els.settingsMenu) return;
     els.settingsMenu.hidden = !els.settingsMenu.hidden;
   });
-
-  els.settingsMenu?.addEventListener('click', (event) => {
-    event.stopPropagation();
-  });
-
+  els.settingsMenu?.addEventListener('click', (event) => event.stopPropagation());
   document.addEventListener('click', closeSettings);
 
   async function doPrint() {
     closeSettings();
     if (printing) return;
     printing = true;
-    els.btnPrint.disabled = true;
-    const settings = readSettingsFromUi();
-    setStatus('正在打印…');
+    if (els.btnPrint) els.btnPrint.disabled = true;
+    const settings = {
+      ...job.settings,
+      ...readSettingsFromUi(),
+    };
+    // Preserve inferred page size for the host print path
+    if (job.settings?.pageWidth) settings.pageWidth = job.settings.pageWidth;
+    if (job.settings?.pageHeight) settings.pageHeight = job.settings.pageHeight;
+    setStatus('正在高清打印…');
     try {
       const res = await chrome.runtime.sendMessage({
         type: 'PRINT_FROM_PREVIEW',
@@ -232,7 +302,9 @@ function bindUi() {
         return;
       }
       const copies = res.copies || settings.copies || 1;
-      setStatus(`已发送到 ${res.printer || '默认打印机'} · ${copies} 份`);
+      setStatus(
+        `已发送到 ${res.printer || '默认打印机'} · ${copies} 份 · ${res.method || '高清'}`
+      );
       try {
         await chrome.runtime.sendMessage({ type: 'CLOSE_PREVIEW', jobId });
       } catch (_) {
@@ -243,7 +315,7 @@ function bindUi() {
       setStatus(err.message || String(err));
     } finally {
       printing = false;
-      els.btnPrint.disabled = false;
+      if (els.btnPrint) els.btnPrint.disabled = false;
     }
   }
 
@@ -260,7 +332,7 @@ function bindUi() {
     doPrint();
   });
 
-  els.btnClose.addEventListener('click', async () => {
+  els.btnClose?.addEventListener('click', async () => {
     try {
       await chrome.runtime.sendMessage({ type: 'CLOSE_PREVIEW', jobId });
     } catch (_) {
@@ -270,39 +342,8 @@ function bindUi() {
   });
 }
 
-async function boot() {
-  if (!jobId) {
-    setStatus('缺少 jobId');
-    return;
-  }
-
-  chrome.runtime.sendMessage({ type: 'PREWARM_HOST' }).catch(() => {});
-
-  const res = await chrome.runtime.sendMessage({ type: 'GET_JOB', jobId });
-  if (res?.error) {
-    setStatus(res.error);
-    return;
-  }
-  job = res.job;
-  applySettingsToUi(job.settings || {});
-  bindUi();
-  renderJob();
-  focusPrint();
-  if (window.ResizeObserver) {
-    new ResizeObserver(() => fitSheets()).observe(els.stage);
-  } else {
-    window.addEventListener('resize', fitSheets);
-  }
-  loadPrinters()
-    .then(() => {
-      applySettingsToUi(job.settings || {});
-      focusPrint();
-    })
-    .catch(() => {});
-}
-
 function focusPrint() {
-  const btn = document.getElementById('btnPrint');
+  const btn = els.btnPrint;
   if (!btn) return;
   try {
     btn.focus({ preventScroll: true });
@@ -330,8 +371,40 @@ async function loadPrinters() {
       els.printer.title = '未安装本地打印代理，点打印将打开安装说明';
     }
   } catch (_) {
-    /* keep default option */
+    /* keep default */
   }
+}
+
+async function boot() {
+  if (!jobId) {
+    setStatus('缺少 jobId');
+    return;
+  }
+
+  chrome.runtime.sendMessage({ type: 'PREWARM_HOST' }).catch(() => {});
+
+  const res = await chrome.runtime.sendMessage({ type: 'GET_JOB', jobId });
+  if (res?.error) {
+    setStatus(res.error);
+    return;
+  }
+  job = res.job;
+  applySettingsToUi(job.settings || {});
+  bindUi();
+  setZoomMode('100');
+  renderJob();
+  focusPrint();
+  if (window.ResizeObserver) {
+    new ResizeObserver(() => fitSheets()).observe(els.stage);
+  } else {
+    window.addEventListener('resize', fitSheets);
+  }
+  loadPrinters()
+    .then(() => {
+      applySettingsToUi(job.settings || {});
+      focusPrint();
+    })
+    .catch(() => {});
 }
 
 boot().catch((err) => setStatus(err.message || String(err)));
