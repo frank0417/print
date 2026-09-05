@@ -88,28 +88,31 @@ function writeMessage(obj) {
 }
 
 async function handle(msg) {
-  const action = msg?.action || msg?.type;
+  const action = (msg && (msg.action || msg.type)) || '';
   switch (action) {
     case 'ping':
       return {
         ok: true,
         pong: true,
-        version: '0.2.2',
+        version: '0.2.3',
         platform: process.platform,
         arch: process.arch,
+        node: process.version,
       };
 
     case 'getHostInfo':
       return {
         ok: true,
-        version: '0.2.2',
+        version: '0.2.3',
         platform: process.platform,
         arch: process.arch,
         node: process.version,
         tmpdir: os.tmpdir(),
       };
 
-    case 'getPrinters': {
+    case 'getPrinters':
+    case 'listPrinters':
+    case 'getPrinterList': {
       const printers = await listPrinters();
       return { ok: true, printers };
     }

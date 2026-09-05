@@ -158,19 +158,32 @@ async function htmlJobToPdf({ jobDir, title, pages, stylesheets, settings }) {
   fs.writeFileSync(htmlPath, html, 'utf8');
 
   try {
-    const { htmlToPdfViaCdp } = require('./chrome-cdp');
-    const t0 = Date.now();
-    await htmlToPdfViaCdp({ htmlPath, pdfPath, settings });
-    if (fs.existsSync(pdfPath)) {
+    // CDP path needs Node 18+ (fetch/WebSocket). On older Node (Win7/Node12) skip it.
+    const major = parseInt(String(process.versions.node || '0').split('.')[0], 10) || 0;
+    if (major >= 18) {
+      const { htmlToPdfViaCdp } = require('./chrome-cdp');
+      const t0 = Date.now();
+      await htmlToPdfViaCdp({ htmlPath, pdfPath, settings });
+      if (fs.existsSync(pdfPath)) {
+        try {
+          fs.appendFileSync(
+            path.join(os.tmpdir(), 'printkit-host.log'),
+            `[${new Date().toISOString()}] html-to-pdf cdp ${Date.now() - t0}ms\n`
+          );
+        } catch (_) {
+          /* ignore */
+        }
+        return pdfPath;
+      }
+    } else {
       try {
         fs.appendFileSync(
           path.join(os.tmpdir(), 'printkit-host.log'),
-          `[${new Date().toISOString()}] html-to-pdf cdp ${Date.now() - t0}ms\n`
+          `[${new Date().toISOString()}] html-to-pdf skip cdp (node ${process.versions.node})\n`
         );
       } catch (_) {
         /* ignore */
       }
-      return pdfPath;
     }
   } catch (err) {
     try {

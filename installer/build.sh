@@ -12,9 +12,11 @@ INSTALLER="$ROOT/installer"
 DIST="$ROOT/dist"
 CACHE="${PRINTKIT_CACHE:-/tmp/printkit-build-cache}"
 NODE_VERSION="${PRINTKIT_NODE_VERSION:-22.14.0}"
+# Windows 7 / Server 2008 R2 need Node 12; Node 14+ will not start there.
+WIN_NODE_VERSION="${PRINTKIT_WIN_NODE_VERSION:-12.22.12}"
 STAGE="$DIST/.stage"
 ARTIFACTS="${PRINTKIT_ARTIFACTS:-/opt/cursor/artifacts}"
-VERSION="0.5.5"
+VERSION="0.5.6"
 
 mkdir -p "$DIST" "$CACHE" "$STAGE" "$ARTIFACTS"
 
@@ -52,6 +54,7 @@ prepare_common_app() {
 PrintKit Setup
 version=$VERSION
 node=$NODE_VERSION
+win_node=${WIN_NODE_VERSION:-$NODE_VERSION}
 built=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 repo=https://github.com/frank0417/print
 one-click=yes
@@ -64,13 +67,18 @@ build_windows_payload() {
   mkdir -p "$stage"
   prepare_common_app "$stage/app"
 
-  local node_zip="$CACHE/node-v${NODE_VERSION}-win-x64.zip"
-  download "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-win-x64.zip" "$node_zip"
+  local node_zip="$CACHE/node-v${WIN_NODE_VERSION}-win-x64.zip"
+  download "https://nodejs.org/dist/v${WIN_NODE_VERSION}/node-v${WIN_NODE_VERSION}-win-x64.zip" "$node_zip"
   rm -rf "$CACHE/node-win-extract"
   mkdir -p "$CACHE/node-win-extract"
   unzip -q "$node_zip" -d "$CACHE/node-win-extract"
   mkdir -p "$stage/app/runtime/node"
-  cp -a "$CACHE/node-win-extract/node-v${NODE_VERSION}-win-x64/." "$stage/app/runtime/node/"
+  cp -a "$CACHE/node-win-extract/node-v${WIN_NODE_VERSION}-win-x64/." "$stage/app/runtime/node/"
+
+  # Record which Node Windows builds actually ship
+  if [[ -f "$stage/app/VERSION.txt" ]]; then
+    sed -i "s/^node=.*/node=${WIN_NODE_VERSION} (win7-compatible)/" "$stage/app/VERSION.txt" || true
+  fi
 
   mkdir -p "$stage/app/host/bin" "$stage/app/bin"
   download "https://mendelson.org/PDFtoPrinter.exe" "$CACHE/PDFtoPrinter.exe"
@@ -96,6 +104,7 @@ build_windows_payload() {
   cp "$INSTALLER/win/Install-PrintKit.ps1" "$stage/"
   cp "$INSTALLER/win/Uninstall-PrintKit.ps1" "$stage/"
   cp "$INSTALLER/win/Open-Extensions.bat" "$stage/"
+  cp "$INSTALLER/win/Diagnose-PrintKit.bat" "$stage/"
   cp "$INSTALLER/win/README.txt" "$stage/"
 }
 

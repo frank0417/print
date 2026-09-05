@@ -282,10 +282,10 @@ function printPdfMac({ pdfPath, printer, copies, settings }) {
   if (copies > 1) args.push('-n', String(copies));
 
   // Paper / orientation hints when possible
-  const media = settings?.paperName;
-  if (media) args.push('-o', `media=${media}`);
-  if (Number(settings?.orientation) === 2) args.push('-o', 'landscape');
-  if (settings?.duplex) args.push('-o', 'sides=two-sided-long-edge');
+  const media = settings && settings.paperName;
+  if (media) args.push('-o', 'media=' + media);
+  if (Number(settings && settings.orientation) === 2) args.push('-o', 'landscape');
+  if (settings && settings.duplex) args.push('-o', 'sides=two-sided-long-edge');
 
   args.push(pdfPath);
   const r = spawnSync('lp', args, { encoding: 'utf8' });

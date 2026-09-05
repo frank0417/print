@@ -153,6 +153,12 @@ try {
 
   Write-InstallLog 'Self-check (native host)...'
   try {
+    $nodeVerOut = & $NodeExe -v 2>&1 | Out-String
+    Write-InstallLog ("node -v => " + $nodeVerOut.Trim())
+  } catch {
+    throw "Bundled Node cannot start on this PC: $($_.Exception.Message). Windows 7 needs PrintKit v0.5.6+ (Node 12). Re-download latest release."
+  }
+  try {
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     $pingOut = & $NodeExe $HostJs --cli ping 2>&1 | Out-String
@@ -160,10 +166,12 @@ try {
     $ErrorActionPreference = $prevEap
     Write-InstallLog $pingOut.Trim()
     if ($pingCode -ne 0) {
-      Write-InstallWarn "Self-check returned exit code $pingCode (files installed; can retry later)."
+      throw "Native host self-check failed (exit $pingCode). See $InstallLog"
     }
+    $printerOut = & $NodeExe $HostJs --cli getPrinters 2>&1 | Out-String
+    Write-InstallLog $printerOut.Trim()
   } catch {
-    Write-InstallWarn "Self-check failed: $($_.Exception.Message)"
+    throw "Self-check failed: $($_.Exception.Message)"
   }
 
   $ExtDir = Join-Path $InstallRoot 'extension'
@@ -172,6 +180,12 @@ try {
     $ExtDir,
     $utf8
   )
+
+  # Keep diagnose tool next to install
+  $diagSrc = Join-Path $SetupRoot 'Diagnose-PrintKit.bat'
+  if (Test-Path $diagSrc) {
+    Copy-Item -Path $diagSrc -Destination (Join-Path $InstallRoot 'Diagnose-PrintKit.bat') -Force
+  }
 
   try {
     $WshShell = New-Object -ComObject WScript.Shell
