@@ -14,9 +14,21 @@ const os = require('os');
 const path = require('path');
 const { listPrinters, getDefaultPrinter, printPdf } = require('./lib/printers');
 const { htmlJobToPdf } = require('./lib/html-to-pdf');
-const { prewarmChrome } = require('./lib/chrome-cdp');
 
 const MAX_MESSAGE = 1024 * 1024 * 64; // 64MB
+
+function nodeMajor() {
+  return parseInt(String(process.versions.node || '0').split('.')[0], 10) || 0;
+}
+
+function prewarmChromeSafe() {
+  // chrome-cdp.js uses fetch/WebSocket/optional chaining — only load on Node 18+
+  if (nodeMajor() < 18) {
+    return Promise.resolve({ skipped: true, reason: 'node<' + process.versions.node });
+  }
+  const cdp = require('./lib/chrome-cdp');
+  return cdp.prewarmChrome();
+}
 
 function log(...args) {
   try {
@@ -94,7 +106,7 @@ async function handle(msg) {
       return {
         ok: true,
         pong: true,
-        version: '0.2.3',
+        version: '0.2.4',
         platform: process.platform,
         arch: process.arch,
         node: process.version,
@@ -103,7 +115,7 @@ async function handle(msg) {
     case 'getHostInfo':
       return {
         ok: true,
-        version: '0.2.3',
+        version: '0.2.4',
         platform: process.platform,
         arch: process.arch,
         node: process.version,

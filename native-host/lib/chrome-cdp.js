@@ -219,7 +219,7 @@ async function htmlToPdfViaCdp({ htmlPath, pdfPath, settings }) {
           { expression: 'document.readyState', returnByValue: true },
           sessionId
         );
-        if (rs?.result?.value === 'complete') break;
+        if (rs && rs.result && rs.result.value === 'complete') break;
       } catch (_) {
         /* keep polling */
       }
