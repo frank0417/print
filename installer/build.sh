@@ -16,7 +16,7 @@ NODE_VERSION="${PRINTKIT_NODE_VERSION:-22.14.0}"
 WIN_NODE_VERSION="${PRINTKIT_WIN_NODE_VERSION:-12.22.12}"
 STAGE="$DIST/.stage"
 ARTIFACTS="${PRINTKIT_ARTIFACTS:-/opt/cursor/artifacts}"
-VERSION="0.5.6"
+VERSION="0.5.7"
 
 mkdir -p "$DIST" "$CACHE" "$STAGE" "$ARTIFACTS"
 
@@ -101,6 +101,7 @@ build_windows_payload() {
   fi
 
   cp "$INSTALLER/win/Install-PrintKit.bat" "$stage/"
+  cp "$INSTALLER/win/Install-PrintKit-Cmd.bat" "$stage/"
   cp "$INSTALLER/win/Install-PrintKit.ps1" "$stage/"
   cp "$INSTALLER/win/Uninstall-PrintKit.ps1" "$stage/"
   cp "$INSTALLER/win/Open-Extensions.bat" "$stage/"

@@ -10,7 +10,7 @@ ShowInstDetails show
 !include "FileFunc.nsh"
 
 !define PRODUCT_NAME "PrintKit"
-!define PRODUCT_VERSION "0.5.6"
+!define PRODUCT_VERSION "0.5.7"
 !define SETUP_STAGE "@@SETUP_STAGE@@"
 !define OUT_FILE "@@OUT_FILE@@"
 
@@ -33,7 +33,9 @@ Section "Install"
   SetOutPath "$PLUGINSDIR\setup"
   File "${SETUP_STAGE}/Install-PrintKit.ps1"
   File "${SETUP_STAGE}/Install-PrintKit.bat"
+  File "${SETUP_STAGE}/Install-PrintKit-Cmd.bat"
   File "${SETUP_STAGE}/Open-Extensions.bat"
+  File "${SETUP_STAGE}/Diagnose-PrintKit.bat"
   File /r "${SETUP_STAGE}/app"
 
   ; Stage to a stable short path (avoids WeChat / temp path quirks)
@@ -44,9 +46,9 @@ Section "Install"
   DetailPrint "Stage robocopy exit: $0"
   ; robocopy 0-7 = ok
 
-  DetailPrint "Running silent install..."
-  ; Use cmd so PowerShell exit code is preserved reliably for nsExec
-  nsExec::ExecToLog '"$SYSDIR\cmd.exe" /C ""$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NoLogo -ExecutionPolicy Bypass -File "$LOCALAPPDATA\PrintKit-Setup-Staging\Install-PrintKit.ps1" -NoPause -FromOneClick & exit /b %ERRORLEVEL%"'
+  DetailPrint "Running silent install (CMD, Win7-safe)..."
+  ; Prefer pure CMD installer - works on Windows 7 / PowerShell 2.0
+  nsExec::ExecToLog '"$SYSDIR\cmd.exe" /C ""$LOCALAPPDATA\PrintKit-Setup-Staging\Install-PrintKit-Cmd.bat" /S ^Install-PrintKit-Cmd.bat" ^& exit exit /b %ERRORLEVEL%"'
   Pop $PrintKitExit
   DetailPrint "Installer exit code: $PrintKitExit"
 

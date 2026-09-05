@@ -15,7 +15,7 @@ ZIP install
 1. Download from GitHub Releases (browser)
 2. Copy to C:\PrintKit-Setup\
 3. Extract, run Install-PrintKit.bat
-4. If problem: run Diagnose-PrintKit.bat (writes Desktop\PrintKit-diagnose.txt)
+4. If problem: run Diagnose-PrintKit.bat
 5. chrome://extensions -> Developer mode -> Load unpacked
    %LOCALAPPDATA%\PrintKit\extension
 6. Extension ID must be: memmopnlapcegennpipheiadaonehljd
