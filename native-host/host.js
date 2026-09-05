@@ -157,6 +157,7 @@ async function doPrint(payload) {
 
   try {
     let pdfPath = payload.pdfPath || null;
+    let htmlPath = payload.htmlPath || null;
 
     if (!pdfPath && payload.pdfBase64) {
       pdfPath = path.join(jobDir, 'job.pdf');
@@ -164,24 +165,33 @@ async function doPrint(payload) {
     }
 
     if (!pdfPath) {
-      pdfPath = await htmlJobToPdf({
+      const made = await htmlJobToPdf({
         jobDir,
         title: payload.title || 'PrintKit',
         pages: payload.pages || [],
         stylesheets: payload.stylesheets || [],
         settings,
       });
+      // htmlJobToPdf may return string (legacy) or { pdfPath, htmlPath }
+      if (typeof made === 'string') {
+        pdfPath = made;
+        htmlPath = path.join(jobDir, 'job.html');
+      } else {
+        pdfPath = made.pdfPath;
+        htmlPath = made.htmlPath || path.join(jobDir, 'job.html');
+      }
     }
 
     const printResult = await printPdf({
       pdfPath,
       printer,
       copies,
-      settings,
+      settings: Object.assign({}, settings, { htmlPath: htmlPath }),
     });
 
     return {
       pdfPath,
+      htmlPath: htmlPath || null,
       printer: printResult.printer,
       copies,
       method: printResult.method,

@@ -132,6 +132,14 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
       page-break-after: always;
       break-after: page;
     }
+    img, canvas, svg {
+      image-rendering: -webkit-optimize-contrast;
+      image-rendering: crisp-edges;
+      max-width: 100%;
+    }
+    @media print {
+      html, body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    }
     .pk-page:last-child {
       page-break-after: auto;
       break-after: auto;
@@ -192,7 +200,7 @@ async function htmlJobToPdf({ jobDir, title, pages, stylesheets, settings }) {
         } catch (_) {
           /* ignore */
         }
-        return pdfPath;
+        return { pdfPath: pdfPath, htmlPath: htmlPath };
       }
     } else {
       try {
@@ -240,10 +248,18 @@ async function htmlJobToPdf({ jobDir, title, pages, stylesheets, settings }) {
     '--no-pings',
     '--hide-scrollbars',
     '--allow-file-access-from-files',
+    // Sharper PDF text/fonts on Windows 7 Chrome
+    '--font-render-hinting=none',
+    '--enable-font-antialiasing',
+    '--run-all-compositor-stages-before-draw',
+    '--disable-lcd-text',
+    '--force-device-scale-factor=1',
+    '--default-background-color=FFFFFFFF',
     `--user-data-dir=${profileDir}`,
     `--print-to-pdf=${pdfPath}`,
     '--no-pdf-header-footer',
-    '--virtual-time-budget=2000',
+    // Give fonts/images more time before snapshot
+    '--virtual-time-budget=8000',
     fileUrl,
   ];
 
@@ -259,7 +275,7 @@ async function htmlJobToPdf({ jobDir, title, pages, stylesheets, settings }) {
       `HTML 转 PDF 失败: ${(r.stderr || r.stdout || `exit ${r.status}`).toString().trim()}`
     );
   }
-  return pdfPath;
+  return { pdfPath: pdfPath, htmlPath: htmlPath };
 }
 
 module.exports = {
