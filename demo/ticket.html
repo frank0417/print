@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>套打运单 Demo · PrintKit</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+        background: #eef2f7;
+        color: #1b2433;
+      }
+      .bar {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 14px 16px;
+        background: #fff;
+        border-bottom: 1px solid #d7dee8;
+        align-items: center;
+      }
+      button {
+        border: 1px solid #d7dee8;
+        background: #fff;
+        border-radius: 8px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font: inherit;
+      }
+      button.primary {
+        background: #1f4fd6;
+        border-color: #1f4fd6;
+        color: #fff;
+      }
+      .hint {
+        flex: 1 1 220px;
+        color: #5b6475;
+        font-size: 13px;
+      }
+      .canvas { padding: 24px; }
+      /* 针式二等分常见尺寸 241×140mm；字段绝对定位相对纸张左上角 */
+      #page1 {
+        position: relative;
+        width: 241mm;
+        height: 140mm;
+        margin: 0 auto;
+        background: #fff;
+        border: 1px dashed #9aa8bd;
+        box-shadow: 0 10px 24px rgba(27, 36, 51, 0.08);
+        overflow: hidden;
+        box-sizing: border-box;
+      }
+      .bg {
+        position: absolute;
+        inset: 0;
+        border: 1px solid #333;
+        margin: 4mm;
+        pointer-events: none;
+      }
+      .title {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 8mm;
+        text-align: center;
+        font-size: 16px;
+        font-weight: 700;
+      }
+      .field {
+        position: absolute;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .f-no { left: 28mm; top: 20mm; font-weight: 700; }
+      .f-from { left: 28mm; top: 32mm; }
+      .f-to { left: 120mm; top: 32mm; }
+      .f-goods { left: 28mm; top: 48mm; }
+      .f-qty { left: 120mm; top: 48mm; }
+      .f-memo { left: 28mm; top: 110mm; color: #445066; }
+      label.inline {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        font-size: 13px;
+        color: #5b6475;
+      }
+      input[type='number'] {
+        width: 64px;
+        height: 30px;
+        border: 1px solid #d7dee8;
+        border-radius: 6px;
+        padding: 0 6px;
+      }
+      a { color: #1f4fd6; margin-left: 8px; }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <button class="primary" type="button" onclick="preview()">打印预览...</button>
+      <button type="button" onclick="printNow()">静默打印</button>
+      <label class="inline">左右偏移(mm)
+        <input id="offsetX" type="number" step="0.5" value="0" title="负值=左移，正值=右移" />
+      </label>
+      <label class="inline">上下偏移(mm)
+        <input id="offsetY" type="number" step="0.5" value="0" title="负值=上移，正值=下移" />
+      </label>
+      <span class="hint">若整体偏右：把「左右偏移」设为负数（如 -3）。边距请保持 0。</span>
+      <a href="./index.html">← 返回</a>
+    </div>
+
+    <div class="canvas">
+      <div id="page1">
+        <div class="bg" aria-hidden="true"></div>
+        <div class="title">航盛物流公司货物运单（套打示例）</div>
+        <div class="field f-no">单号：26090608310001</div>
+        <div class="field f-from">发站：河北冀州胜芳站</div>
+        <div class="field f-to">到站：冠县站</div>
+        <div class="field f-goods">品名：配件</div>
+        <div class="field f-qty">件数：12</div>
+        <div class="field f-memo">制单人：测试 · 套打请用纸张 Form241x140，边距 0</div>
+      </div>
+    </div>
+
+    <script>
+      function doc() {
+        return {
+          documents: document,
+          copyrights: 'PrintKit ticket demo',
+          settings: {
+            // 与 #page1 尺寸一致；勿用 A4，否则内容会被裁切/偏移
+            paperName: 'Form241x140',
+            pageWidth: 241,
+            pageHeight: 140,
+            orientation: 1,
+            marginTop: 0,
+            marginRight: 0,
+            marginBottom: 0,
+            marginLeft: 0,
+            offsetX: Number(document.getElementById('offsetX').value) || 0,
+            offsetY: Number(document.getElementById('offsetY').value) || 0,
+          },
+        };
+      }
+
+      async function api() {
+        if (window.jatoolsPrinter) return window.jatoolsPrinter;
+        await new Promise((r) => window.addEventListener('printkit-ready', r, { once: true }));
+        return window.jatoolsPrinter;
+      }
+
+      async function preview() {
+        (await api()).printPreview(doc());
+      }
+      async function printNow() {
+        (await api()).print(doc(), false);
+      }
+    </script>
+  </body>
+</html>
