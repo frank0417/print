@@ -61,11 +61,53 @@ const PIN_NAME_RE = new RegExp(
 );
 const NOT_PIN_RE = /LASER|INKJET|DESKJET|OFFICEJET|PIXMA|IMAGECLASS|BROTHER\s*(HL|DCP|MFC)|PDF|XPS|FAX|ONENOTE|SHARP|夏普|KYOCERA|RICOH|激光|喷墨/i;
 
+export const PRINTER_TYPE_LABELS = {
+  pin: '针式',
+  laser: '激光',
+  inkjet: '喷墨',
+  virtual: '虚拟',
+  thermal: '热敏',
+};
+
 export function isPinPrinter(name) {
   const s = String(name || '');
   if (!s) return false;
   if (NOT_PIN_RE.test(s) && !/针式|平推/.test(s)) return false;
   return PIN_NAME_RE.test(s);
+}
+
+export function classifyPrinterType(name, extra = {}) {
+  const blob = [name, extra.driver, extra.port].filter(Boolean).join(' ');
+  const port = String(extra.port || '');
+  if (
+    /PORTPROMPT:|NUL:|FILE:|SHRFAX:|KINGSOFT/i.test(port) ||
+    /PDF|XPS|ONENOTE|FAX|传真|虚拟|VIRTUAL|文档编写器|WPS\s*PDF|金山/i.test(blob)
+  ) {
+    return 'virtual';
+  }
+  if (isPinPrinter(name) || isPinPrinter(extra.driver || '')) return 'pin';
+  const laser = /LASER|LASERJET|IMAGECLASS|激光|KYOCERA|RICOH|\bSHARP\b|夏普|BROTHER\s*HL|MFP\s*11[0-9]/i.test(
+    blob
+  );
+  const inkjet = /INKJET|DESKJET|OFFICEJET|PIXMA|STYLUS|ECOTANK|MAXIFY|\bENVY\b|喷墨|EPSON\s*L\d/i.test(blob);
+  if (laser && !inkjet) return 'laser';
+  if (inkjet && !laser) return 'inkjet';
+  if (laser) return 'laser';
+  if (inkjet) return 'inkjet';
+  return extra.kind || 'laser';
+}
+
+export function printerTypeLabel(type) {
+  return PRINTER_TYPE_LABELS[type] || PRINTER_TYPE_LABELS.laser;
+}
+
+/** Dropdown text: "EPSON LQ-730KII（针式 · 默认）" */
+export function formatPrinterOptionLabel(p, overrideType) {
+  const name = (p && p.name) || '';
+  if (!name) return '';
+  const type = overrideType || p.kind || classifyPrinterType(name, { driver: p.description, port: p.port });
+  const tag = overrideType ? printerTypeLabel(overrideType) : p.kindLabel || printerTypeLabel(type);
+  return name + '（' + tag + (p.isDefault ? ' · 默认' : '') + '）';
 }
 
 /** Match a mm box to 9.5" pin-feed 二等分 / 三等分 / 全页. */

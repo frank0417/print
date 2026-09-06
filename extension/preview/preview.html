@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="preview.css" />
   </head>
   <body>
-    <form class="toolbar no-print" id="printForm">
+    <form class="toolbar no-print" id="printForm" novalidate>
       <button id="btnPrint" class="primary" type="submit">打印</button>
       <button id="btnClose" class="danger" type="button">关闭</button>
       <div class="controls">
@@ -42,6 +42,15 @@
             <option value="">默认打印机</option>
           </select>
         </label>
+        <label>
+          类型
+          <select id="printerKind" class="printer-kind" title="按规则自动识别；认错了可以改，只对当前打印机生效">
+            <option value="pin">针式</option>
+            <option value="laser">激光</option>
+            <option value="inkjet">喷墨</option>
+            <option value="virtual">虚拟</option>
+          </select>
+        </label>
         <div class="zoom no-print" id="zoomBar" title="预览缩放（100% 最清晰）">
           <button type="button" data-zoom="fit">适合</button>
           <button type="button" data-zoom="100" class="active">100%</button>
@@ -52,10 +61,10 @@
           <button id="btnSettings" type="button">设置</button>
           <div id="settingsMenu" class="settings-menu" hidden>
             <div class="settings-title">边距 (mm)</div>
-            <label>上 <input id="marginTop" type="number" value="0" /></label>
-            <label>右 <input id="marginRight" type="number" value="0" /></label>
-            <label>下 <input id="marginBottom" type="number" value="0" /></label>
-            <label>左 <input id="marginLeft" type="number" value="0" /></label>
+            <label>上 <input id="marginTop" type="number" step="any" value="0" /></label>
+            <label>右 <input id="marginRight" type="number" step="any" value="0" /></label>
+            <label>下 <input id="marginBottom" type="number" step="any" value="0" /></label>
+            <label>左 <input id="marginLeft" type="number" step="any" value="0" /></label>
           </div>
         </div>
       </div>

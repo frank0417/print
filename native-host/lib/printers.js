@@ -2,7 +2,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const os = require('os');
+const { spawn, spawnSync } = require('child_process');
+
+/** Short-lived cache: Win32_Printer WMI is ~1–2s per call. */
+const winPrinterMetaCache = Object.create(null);
 
 function which(cmds) {
   for (const cmd of cmds) {
@@ -22,9 +26,26 @@ function which(cmds) {
 }
 
 async function listPrinters() {
-  if (process.platform === 'darwin') return listPrintersMac();
-  if (process.platform === 'win32') return listPrintersWin();
-  return listPrintersLinux();
+  let printers;
+  if (process.platform === 'darwin') printers = listPrintersMac();
+  else if (process.platform === 'win32') printers = listPrintersWin();
+  else printers = listPrintersLinux();
+  return withPrinterKind(printers);
+}
+
+function withPrinterKind(printers) {
+  const kind = require('./printer-kind');
+  return (printers || []).map(function (p) {
+    const info = kind.deviceKindInfo(p.name, {
+      driver: p.description,
+      port: p.port,
+      skipProbe: true,
+    });
+    p.kind = info.type;
+    p.kindLabel = info.label;
+    p.printerKind = info.printKind;
+    return p;
+  });
 }
 
 async function getDefaultPrinter() {
@@ -229,13 +250,143 @@ function resolveWinPrinterTarget(printer) {
   return wanted || null;
 }
 
+function logPrint(msg) {
+  try {
+    fs.appendFileSync(
+      path.join(require('os').tmpdir(), 'printkit-host.log'),
+      '[' + new Date().toISOString() + '] ' + msg + '\n'
+    );
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+/**
+ * IPP/WSD lasers (HP 111 etc.) keep a failed job in Error and then every
+ * later job sits behind it — preview says 已发送, printer never moves.
+ * Drop those failed jobs (Win32_PrintJob, Win7-safe) before sending a new one.
+ */
+function recoverWinPrinterQueue(printer) {
+  if (process.platform !== 'win32' || !printer) return;
+  const name = String(printer).replace(/'/g, "''");
+  const script =
+    "$ErrorActionPreference='SilentlyContinue';" +
+    "$n='" +
+    name +
+    "';" +
+    "$p=$null; try{$p=Get-WmiObject Win32_Printer | Where-Object {$_.Name -eq $n}}catch{};" +
+    "if(-not $p){ Write-Output 'NOPRINTER'; exit 0 };" +
+    "$off=0; if($p.WorkOffline){$off=1};" +
+    "$jobs=@(); try{$jobs=@(Get-WmiObject Win32_PrintJob | Where-Object { $_.Name -like ($n + ',*') })}catch{};" +
+    "$cleared=0;" +
+    "foreach($j in $jobs){" +
+    "  $mask=0; try{$mask=[int]$j.StatusMask}catch{};" +
+    "  $st=[string]$j.JobStatus + ' ' + [string]$j.Status;" +
+    "  if($st -match 'Error|Paused|Offline|Degraded|Paper' -or ($mask -band 2) -or ($mask -band 4) -or ($mask -band 0x400000)){" +
+    "    try{$j.Delete(); $cleared++}catch{}" +
+    "  }" +
+    "}" +
+    "Write-Output ('STATUS|' + [string]$p.PrinterStatus + '|offline=' + $off + '|cleared=' + $cleared + '|jobs=' + $jobs.Count)";
+  const r = spawnSync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+    { encoding: 'utf8', windowsHide: true, timeout: 20000, maxBuffer: 1024 * 1024 }
+  );
+  const out = String((r.stdout || '') + (r.stderr || '')).replace(/\s+/g, ' ').trim();
+  logPrint('recover queue printer=' + printer + ' ' + out.slice(0, 240));
+}
+
+function getWinPrinterMeta(name) {
+  if (process.platform !== 'win32' || !name) return {};
+  const key = String(name);
+  const hit = winPrinterMetaCache[key];
+  if (hit && Date.now() - hit.at < 60000) return hit.meta;
+
+  const n = key.replace(/'/g, "''");
+  const r = spawnSync(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      "$ErrorActionPreference='SilentlyContinue';$n='" +
+        n +
+        "';$p=$null; try{$p=Get-WmiObject Win32_Printer | Where-Object {$_.Name -eq $n}}catch{};" +
+        "if(-not $p){ Write-Output 'NONE'; exit 0 };" +
+        "Write-Output ('META|' + [string]$p.DriverName + '|' + [string]$p.PortName + '|' + $(if($p.WorkOffline){'1'}else{'0'}) + '|' + [string]$p.PrinterStatus)",
+    ],
+    { encoding: 'utf8', windowsHide: true, timeout: 8000, maxBuffer: 1024 * 1024 }
+  );
+  const line = String(r.stdout || '')
+    .split(/\r?\n/)
+    .filter(function (l) {
+      return /^META\|/.test(l);
+    })[0];
+  if (!line) {
+    winPrinterMetaCache[key] = { at: Date.now(), meta: {} };
+    return {};
+  }
+  const parts = line.split('|');
+  const meta = {
+    driver: parts[1] || '',
+    port: parts[2] || '',
+    offline: parts[3] === '1',
+    status: parts[4] || '',
+  };
+  winPrinterMetaCache[key] = { at: Date.now(), meta: meta };
+  return meta;
+}
+
+function isIppWsdPrinter(meta) {
+  const s = [meta && meta.driver, meta && meta.port].join(' ');
+  return /IPP Class|WSD-|WSD |Internet Print|\bIPP\b/i.test(s);
+}
+
+/** After a silent send: if the spooler marked the job Error, that is a failed print. */
+function assertWinPrintLanded(printer, opts) {
+  if (process.platform !== 'win32' || !printer) return;
+  const delayMs = opts && opts.delayMs != null ? Math.max(0, Number(opts.delayMs) || 0) : 200;
+  const n = String(printer).replace(/'/g, "''");
+  const r = spawnSync(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      "$ErrorActionPreference='SilentlyContinue';" +
+        (delayMs > 0 ? 'Start-Sleep -Milliseconds ' + delayMs + ';' : '') +
+        "$n='" +
+        n +
+        "';$jobs=@(); try{$jobs=@(Get-WmiObject Win32_PrintJob | Where-Object { $_.Name -like ($n + ',*') })}catch{};" +
+        "$err=0; foreach($j in $jobs){ $st=[string]$j.JobStatus+' '+[string]$j.Status; $mask=0; try{$mask=[int]$j.StatusMask}catch{};" +
+        " if($st -match 'Error|Offline|Paper' -or ($mask -band 2)){ $err++; try{$j.Delete()}catch{} } };" +
+        "Write-Output ('JOBS|' + $jobs.Count + '|err=' + $err)",
+    ],
+    { encoding: 'utf8', windowsHide: true, timeout: 10000, maxBuffer: 1024 * 1024 }
+  );
+  const out = String((r.stdout || '') + (r.stderr || '')).replace(/\s+/g, ' ').trim();
+  logPrint('assert jobs printer=' + printer + ' ' + out.slice(0, 200));
+  if (/err=[1-9]/.test(out)) {
+    throw new Error(
+      '打印机任务失败（IPP/WSD 驱动把作业标成错误）。请确认 HP 已开机且同一网络；或在 Windows 设置里用打印机 IP 重新添加，不要用 WSD 自动发现。'
+    );
+  }
+}
+
 function listPrintersLinux() {
   // Optional Linux support via CUPS (bonus; primary targets are Win/Mac)
   return listPrintersMac();
 }
 
 async function printPdf({ pdfPath, printer, copies, settings }) {
-  if (!pdfPath || !fs.existsSync(pdfPath)) {
+  const htmlPath = settings && settings.htmlPath;
+  const hasHtml = htmlPath && fs.existsSync(htmlPath);
+  const hasPdf = pdfPath && fs.existsSync(pdfPath);
+  if (!hasPdf && !(process.platform === 'win32' && hasHtml)) {
     throw new Error('PDF 文件不存在');
   }
   if (process.platform === 'darwin') {
@@ -279,7 +430,20 @@ function printPdfMac({ pdfPath, printer, copies, settings }) {
 }
 
 function winBinDir() {
-  return path.join(__dirname, '..', 'bin');
+  const dirs = [
+    path.join(__dirname, '..', 'bin'),
+    path.join(__dirname, '..', '..', 'bin'),
+  ];
+  for (let i = 0; i < dirs.length; i++) {
+    const d = dirs[i];
+    if (
+      fs.existsSync(path.join(d, 'SumatraPDF.exe')) ||
+      fs.existsSync(path.join(d, 'PDFtoPrinter.exe'))
+    ) {
+      return d;
+    }
+  }
+  return dirs[0];
 }
 
 function spawnDetail(r) {
@@ -315,6 +479,7 @@ function printWithPdfToPrinter(helper, pdfPath, target, copies) {
       encoding: 'utf8',
       windowsHide: true,
       cwd: path.dirname(helper),
+      timeout: 30000,
     });
     if (r.status !== 0) {
       throw new Error(`PDFtoPrinter 失败: ${spawnDetail(r) || '无输出'}`);
@@ -345,6 +510,9 @@ function printWithSumatra(helper, pdfPath, target, copies, settings) {
   // empty, no page). Do not send them.
   if (pin) landscape = true;
   printSettings.push(landscape ? 'landscape' : 'portrait');
+  if (!pin && htmlToPdf.PAPER_PRESETS[paper.name] && !htmlToPdf.isPinSheetName(paper.name)) {
+    printSettings.push('paper=' + paper.name);
+  }
 
   try {
     fs.appendFileSync(
@@ -387,7 +555,7 @@ function printWithSumatra(helper, pdfPath, target, copies, settings) {
     encoding: 'utf8',
     windowsHide: true,
     cwd: path.dirname(helper),
-    timeout: 120000,
+    timeout: pin ? 120000 : 20000,
   });
   if (r.status !== 0) {
     throw new Error(`SumatraPDF 打印失败: ${spawnDetail(r) || '无输出'}`);
@@ -496,9 +664,9 @@ function prepareKioskPrintFile(filePath) {
     let html = fs.readFileSync(abs, 'utf8');
     const inject =
       '<script>(function(){function go(){try{window.focus();window.print();}catch(e){}' +
-      'setTimeout(function(){try{window.close();}catch(e){}},1500);}' +
-      'if(document.readyState==="complete")setTimeout(go,400);' +
-      'else window.addEventListener("load",function(){setTimeout(go,400);});})();</script>';
+      'setTimeout(function(){try{window.close();}catch(e){}},300);}' +
+      'if(document.readyState==="complete")setTimeout(go,50);' +
+      'else window.addEventListener("load",function(){setTimeout(go,50);});})();</script>';
     if (/<\/body>/i.test(html)) {
       html = html.replace(/<\/body>/i, inject + '</body>');
     } else {
@@ -517,8 +685,8 @@ function prepareKioskPrintFile(filePath) {
     pdfUrl +
     '" type="application/pdf" />' +
     '<script>(function(){function go(){try{window.focus();window.print();}catch(e){}' +
-    'setTimeout(function(){try{window.close();}catch(e){}},2000);}' +
-    'setTimeout(go,1200);})();</script></body></html>';
+    'setTimeout(function(){try{window.close();}catch(e){}},400);}' +
+    'setTimeout(go,400);})();</script></body></html>';
   fs.writeFileSync(outPath, wrap, 'utf8');
   return outPath;
 }
@@ -753,6 +921,90 @@ function printWithIeCom(htmlPath, target, copies, settings) {
 }
 
 /**
+ * Poll the spooler until job count rises above `baseline`, or timeout.
+ * Used so we can kill Chrome as soon as the job is submitted instead of
+ * waiting for the browser process to exit on its own (~5–15s).
+ */
+function countWinSpoolJobs(printer) {
+  if (process.platform !== 'win32' || !printer) return 0;
+  const n = String(printer).replace(/'/g, "''");
+  const r = spawnSync(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      "$ErrorActionPreference='SilentlyContinue';$n='" +
+        n +
+        "';$jobs=@(); try{$jobs=@(Get-WmiObject Win32_PrintJob | Where-Object { $_.Name -like ($n + ',*') })}catch{}; Write-Output $jobs.Count",
+    ],
+    { encoding: 'utf8', windowsHide: true, timeout: 5000, maxBuffer: 256 * 1024 }
+  );
+  const nJobs = parseInt(String(r.stdout || '').trim(), 10);
+  return Number.isFinite(nJobs) ? nJobs : 0;
+}
+
+function waitWinSpoolJob(printer, timeoutMs, baseline) {
+  if (process.platform !== 'win32' || !printer) return false;
+  const n = String(printer).replace(/'/g, "''");
+  const base = Math.max(0, Number(baseline) || 0);
+  const sec = Math.max(2, Math.ceil((timeoutMs || 12000) / 1000));
+  const r = spawnSync(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      "$ErrorActionPreference='SilentlyContinue';$n='" +
+        n +
+        "';$base=" +
+        base +
+        ';$deadline=(Get-Date).AddSeconds(' +
+        sec +
+        ');' +
+        'while((Get-Date) -lt $deadline){' +
+        "  $jobs=@(); try{$jobs=@(Get-WmiObject Win32_PrintJob | Where-Object { $_.Name -like ($n + ',*') })}catch{};" +
+        "  if($jobs.Count -gt $base){ Write-Output ('LANDED|' + $jobs.Count); exit 0 };" +
+        '  Start-Sleep -Milliseconds 180' +
+        '}; Write-Output TIMEOUT',
+    ],
+    {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: (timeoutMs || 12000) + 3000,
+      maxBuffer: 1024 * 1024,
+    }
+  );
+  const out = String((r.stdout || '') + (r.stderr || '')).replace(/\s+/g, ' ').trim();
+  logPrint('wait spool printer=' + printer + ' ' + out.slice(0, 120));
+  return /^LANDED\|/.test(out);
+}
+
+function killProcessTree(pid) {
+  if (!pid) return;
+  try {
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+        windowsHide: true,
+        timeout: 5000,
+      });
+    } else {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+/**
  * Print via Chrome/Edge kiosk-printing at forced 100% scale.
  * Uses the printer driver directly (vector/text stays sharp), unlike Sumatra's bitmap path.
  */
@@ -769,10 +1021,8 @@ function printWithChromeKiosk(filePath, target, copies, settings) {
     changed = setDefaultPrinterWin(target);
   }
 
-  const profileDir = path.join(
-    require('os').tmpdir(),
-    'printkit-chrome-print-' + String(process.pid) + '-' + String(Date.now())
-  );
+  // Reuse one profile across jobs — cold Chrome + fresh user-data-dir is ~3–8s.
+  const profileDir = path.join(os.tmpdir(), 'printkit-chrome-kiosk');
   try {
     fs.mkdirSync(profileDir, { recursive: true });
   } catch (_) {
@@ -794,15 +1044,25 @@ function printWithChromeKiosk(filePath, target, copies, settings) {
   const n = Math.max(1, copies || 1);
   try {
     for (let i = 0; i < n; i++) {
+      // NOTE: never add --disable-print-preview here. --kiosk-printing only
+      // auto-accepts the *preview* dialog; with preview disabled Chrome falls
+      // back to the Windows system print dialog and waits for a click.
       const args = [
         '--kiosk-printing',
-        '--disable-print-preview',
         '--no-first-run',
         '--no-default-browser-check',
         '--disable-extensions',
         '--disable-popup-blocking',
         '--disable-session-crashed-bubble',
         '--disable-infobars',
+        '--disable-background-networking',
+        '--disable-sync',
+        '--disable-translate',
+        '--disable-default-apps',
+        '--disable-component-update',
+        '--metrics-recording-only',
+        '--no-pings',
+        '--mute-audio',
         '--allow-file-access-from-files',
         '--font-render-hinting=none',
         '--force-device-scale-factor=1',
@@ -810,20 +1070,41 @@ function printWithChromeKiosk(filePath, target, copies, settings) {
         '--new-window',
         url,
       ];
-      const r = spawnSync(chrome, args, {
-        encoding: 'utf8',
+      const spoolPrinter = target || prevDefault;
+      const baseline = countWinSpoolJobs(spoolPrinter);
+      const child = spawn(chrome, args, {
         windowsHide: true,
-        timeout: 120000,
-        maxBuffer: 5 * 1024 * 1024,
+        stdio: 'ignore',
+        detached: false,
       });
-      if (r.error) {
-        throw new Error('Chrome 打印启动失败: ' + r.error.message);
+      let childErr = null;
+      child.on('error', function (err) {
+        childErr = err;
+      });
+
+      const landed = waitWinSpoolJob(spoolPrinter, 14000, baseline);
+      if (childErr) {
+        throw new Error('Chrome 打印启动失败: ' + childErr.message);
+      }
+      // Job is in the spooler (or we timed out) — don't wait for Chrome to quit.
+      killProcessTree(child.pid);
+      try {
+        child.unref();
+      } catch (_) {
+        /* ignore */
+      }
+      if (!landed) {
+        // Chrome may have exited early with a dialog; fall back to a short
+        // sync run only when nothing hit the queue (rare).
+        logPrint('kiosk spool miss, chrome pid=' + child.pid);
+        throw new Error('Chrome 静默打印未进入队列（请确认默认打印机已指向目标机）');
       }
     }
     return {
       printer: target || prevDefault || 'default',
       method:
         'Chrome-kiosk-100pct-' + (media.landscape ? 'landscape' : 'portrait'),
+      spoolConfirmed: true,
     };
   } finally {
     if (changed && prevDefault) {
@@ -855,41 +1136,91 @@ function printPdfWin({ pdfPath, printer, copies, settings }) {
     /* ignore */
   }
 
-  // Default path for every Windows printer: GDI direct (pdfium → printer DC),
-  // the same pipeline Chrome itself uses. Vectors reach the driver, so pins
-  // print like Notepad/TXT and lasers stay exact at 100%. Paper is matched
-  // against what the driver actually offers (any brand); pin kind adds the
-  // fanfold layout (Letter = 2×二等分, no rotation, head-home offset).
-  // Sumatra (bitmap) remains the fallback / opt-in (printMode: 'sumatra').
+  // Pin: GDI (pdfium → printer DC). USB lasers: Sumatra then GDI.
+  // IPP/WSD (HP Laser MFP 111 + Microsoft IPP Class Driver): GDI/Sumatra
+  // report OK but the spooler marks Error — use Chrome kiosk (same path as
+  // printing from Chrome) and never treat a failed IPP job as success.
   const htmlToPdf = require('./html-to-pdf');
   const s = require('./printer-kind').applyPrinterKind(Object.assign({}, settings || {}));
   const pin = htmlToPdf.isPinSettings(s);
-  const mode = String(s.printMode || (s.gdi === false || s.gdi === 'false' ? 'sumatra' : 'gdi'));
-  if (mode !== 'sumatra') {
-    try {
-      return require('./win-gdi-print').printPdfGdi({
-        pdfPath,
-        printer: target,
-        copies,
-        fanfold: pin,
-        leftEdgeMm: s.pinLeftEdgeMm,
-        resolution: s.pinResolution,
+  const mode = String(s.printMode || (s.gdi === false || s.gdi === 'false' ? 'sumatra' : ''));
+  const forceGdi = mode === 'gdi';
+  const forceSumatra = mode === 'sumatra';
+  const gdiFirst = pin ? !forceSumatra : forceGdi;
+  const meta = pin ? {} : getWinPrinterMeta(target);
+  const ipp = !pin && isIppWsdPrinter(meta);
+  logPrint(
+    'route pin=' +
+      pin +
+      ' ipp=' +
+      ipp +
+      ' driver=' +
+      (meta.driver || '') +
+      ' port=' +
+      (meta.port || '')
+  );
+
+  function tryGdi() {
+    return require('./win-gdi-print').printPdfGdi({
+      pdfPath,
+      printer: target,
+      copies,
+      fanfold: pin,
+      leftEdgeMm: s.pinLeftEdgeMm,
+      resolution: s.pinResolution,
+    });
+  }
+
+  function finish(result) {
+    // Kiosk path already waited for the spooler job — skip the old 1.2s sleep.
+    if (!pin) {
+      assertWinPrintLanded(target, {
+        delayMs: result && result.spoolConfirmed ? 0 : 200,
       });
+    }
+    return result;
+  }
+
+  if (!pin) recoverWinPrinterQueue(target);
+
+  if (ipp && !forceGdi) {
+    try {
+      const htmlPath = s.htmlPath;
+      const kioskFile = htmlPath && fs.existsSync(htmlPath) ? htmlPath : pdfPath;
+      if (!kioskFile || !fs.existsSync(kioskFile)) {
+        throw new Error('没有可打印的 HTML/PDF');
+      }
+      return finish(printWithChromeKiosk(kioskFile, target, copies, s));
+    } catch (err) {
+      errors.push(err.message || String(err));
+      logPrint('kiosk failed ' + (err.message || String(err)).slice(0, 200));
+    }
+  }
+
+  if (gdiFirst) {
+    try {
+      return finish(tryGdi());
     } catch (err) {
       errors.push(err.message || String(err));
     }
   }
 
-  // Silent helpers only. Chrome kiosk / IE / PrintTo verb open extra windows
-  // and the system print dialog — preview already is the only UI we want.
   for (const helper of listWinPrintHelpers()) {
     try {
       if (helper.kind === 'SumatraPDF') {
-        return printWithSumatra(helper.path, pdfPath, target, copies, settings);
+        return finish(printWithSumatra(helper.path, pdfPath, target, copies, settings));
       }
       if (helper.kind === 'PDFtoPrinter') {
-        return printWithPdfToPrinter(helper.path, pdfPath, target, copies);
+        return finish(printWithPdfToPrinter(helper.path, pdfPath, target, copies));
       }
+    } catch (err) {
+      errors.push(err.message || String(err));
+    }
+  }
+
+  if (!gdiFirst && !ipp) {
+    try {
+      return finish(tryGdi());
     } catch (err) {
       errors.push(err.message || String(err));
     }
@@ -897,7 +1228,7 @@ function printPdfWin({ pdfPath, printer, copies, settings }) {
 
   throw new Error(
     errors.filter(Boolean).join(' | ') ||
-      '未找到静默打印组件（SumatraPDF）。请重新安装 PrintKit。'
+      '打印失败。IPP/WSD 激光机请确认已开机联网，或在 Windows 中用 IP 添加打印机。'
   );
 }
 
@@ -908,4 +1239,6 @@ module.exports = {
   which,
   listWinPrintHelpers,
   resolveWinPrinterTarget,
+  getWinPrinterMeta,
+  isIppWsdPrinter,
 };

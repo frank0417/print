@@ -218,7 +218,14 @@
           for (const p of printers || []) {
             const opt = document.createElement('option');
             opt.value = p.name;
-            opt.textContent = p.isDefault ? `${p.name}（默认）` : p.name;
+            const tag = p.kindLabel || p.kind;
+            const labels = { pin: '针式', laser: '激光', inkjet: '喷墨', virtual: '虚拟', thermal: '热敏' };
+            const zh = p.kindLabel || labels[tag] || '';
+            opt.textContent = zh
+              ? `${p.name}（${zh}${p.isDefault ? ' · 默认' : ''}）`
+              : p.isDefault
+                ? `${p.name}（默认）`
+                : p.name;
             select.appendChild(opt);
           }
           if (current) select.value = current;

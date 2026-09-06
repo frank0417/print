@@ -39,11 +39,54 @@ const PIN_NAME_RE = new RegExp(
 
 const NOT_PIN_RE = /LASER|INKJET|DESKJET|OFFICEJET|PIXMA|IMAGECLASS|BROTHER\s*(HL|DCP|MFC)|PDF|XPS|FAX|ONENOTE|SHARP|夏普|KYOCERA|RICOH|激光|喷墨/i;
 
+const VIRTUAL_NAME_RE =
+  /PDF|XPS|ONENOTE|FAX|传真|虚拟|VIRTUAL|PRINT\s*TO\s*PDF|文档编写器|WPS\s*PDF|金山/i;
+const VIRTUAL_PORT_RE = /PORTPROMPT:|NUL:|FILE:|SHRFAX:|KINGSOFT/i;
+const INKJET_RE =
+  /INKJET|DESKJET|OFFICEJET|PIXMA|STYLUS|ECOTANK|MAXIFY|\bENVY\b|喷墨|EPSON\s*L\d/i;
+const LASER_RE =
+  /LASER|LASERJET|IMAGECLASS|激光|KYOCERA|RICOH|\bSHARP\b|夏普|BROTHER\s*HL|MFP\s*11[0-9]/i;
+
+const KIND_LABEL = {
+  pin: '针式',
+  laser: '激光',
+  inkjet: '喷墨',
+  virtual: '虚拟',
+  thermal: '热敏',
+};
+
 function pinByName(name) {
   const s = String(name || '');
   if (!s) return false;
   if (NOT_PIN_RE.test(s) && !/针式|平推/.test(s)) return false;
   return PIN_NAME_RE.test(s);
+}
+
+function printKindOf(type) {
+  if (type === 'pin') return 'pin';
+  if (type === 'thermal') return 'thermal';
+  return 'page';
+}
+
+function kindLabel(type) {
+  return KIND_LABEL[type] || KIND_LABEL.laser;
+}
+
+/** Name / driver / port only — no driver probe. null if still unknown. */
+function deviceTypeFromText(name, driver, port) {
+  const blob = [name, driver, port].filter(Boolean).join(' ');
+  if (!blob) return null;
+  if (VIRTUAL_PORT_RE.test(String(port || '')) || VIRTUAL_NAME_RE.test(blob)) {
+    return 'virtual';
+  }
+  if (pinByName(name) || pinByName(driver)) return 'pin';
+  const laser = LASER_RE.test(blob);
+  const inkjet = INKJET_RE.test(blob);
+  if (laser && !inkjet) return 'laser';
+  if (inkjet && !laser) return 'inkjet';
+  if (laser) return 'laser';
+  if (inkjet) return 'inkjet';
+  return null;
 }
 
 function cachePath() {
@@ -129,13 +172,31 @@ function classify(name, caps) {
 }
 
 /**
- * { kind: 'pin' | 'thermal' | 'page', source: 'name' | 'probe' | 'unknown' }
- * for a printer name (empty = system default).
+ * Fine-grained device type for the preview dropdown.
+ * extra.skipProbe: listing printers must stay fast — guess 激光 if unknown.
  */
-function printerKindInfo(name) {
+function deviceKindInfo(name, extra) {
+  extra = extra || {};
+  const typed = deviceTypeFromText(name, extra.driver, extra.port);
+  if (typed) {
+    return {
+      type: typed,
+      label: kindLabel(typed),
+      printKind: printKindOf(typed),
+      source: 'name',
+      caps: extra.caps || null,
+    };
+  }
+  if (extra.skipProbe || process.platform !== 'win32') {
+    return {
+      type: 'laser',
+      label: kindLabel('laser'),
+      printKind: 'page',
+      source: extra.skipProbe ? 'guess' : 'unknown',
+      caps: extra.caps || null,
+    };
+  }
   const key = String(name || '') || '(default)';
-  if (pinByName(key)) return { kind: 'pin', source: 'name' };
-  if (process.platform !== 'win32') return { kind: 'page', source: 'unknown' };
   const cache = loadCache();
   let caps = cache[key];
   if (!caps || !caps.probedAt) {
@@ -143,8 +204,24 @@ function printerKindInfo(name) {
     cache[key] = caps;
     saveCache(cache);
   }
-  const kind = classify(key, caps);
-  return { kind, source: caps.maxDpi > 0 ? 'probe' : 'unknown', caps };
+  const coarse = classify(key, caps);
+  const type = coarse === 'page' ? 'laser' : coarse;
+  return {
+    type: type,
+    label: kindLabel(type),
+    printKind: printKindOf(type),
+    source: caps.maxDpi > 0 ? 'probe' : 'unknown',
+    caps: caps,
+  };
+}
+
+/**
+ * { kind: 'pin' | 'thermal' | 'page', source: 'name' | 'probe' | 'unknown' }
+ * for a printer name (empty = system default).
+ */
+function printerKindInfo(name) {
+  const info = deviceKindInfo(name, {});
+  return { kind: info.printKind, source: info.source, caps: info.caps, type: info.type, label: info.label };
 }
 
 function printerKind(name) {
@@ -154,19 +231,46 @@ function printerKind(name) {
 /** Resolve settings.printerKind once per job (explicit value wins). */
 function applyPrinterKind(settings) {
   const s = settings || {};
-  if (s.printerKind === 'pin' || s.printerKind === 'thermal' || s.printerKind === 'page') {
+  if (s.printerKind === 'laser' || s.printerKind === 'inkjet' || s.printerKind === 'virtual') {
+    s.printerType = s.printerKind;
+    s.printerTypeLabel = kindLabel(s.printerKind);
+    s.printerKind = 'page';
     s.printerKindSource = s.printerKindSource || 'explicit';
     return s;
   }
+  if (s.printerKind === 'pin' || s.printerKind === 'thermal' || s.printerKind === 'page') {
+    s.printerKindSource = s.printerKindSource || 'explicit';
+    if (!s.printerType) {
+      s.printerType = s.printerKind === 'page' ? 'laser' : s.printerKind;
+      s.printerTypeLabel = kindLabel(s.printerType);
+    }
+    return s;
+  }
   try {
-    const info = printerKindInfo(s.printer || s.printerName || '');
-    s.printerKind = info.kind;
+    const info = deviceKindInfo(s.printer || s.printerName || '', {});
+    s.printerKind = info.printKind;
     s.printerKindSource = info.source;
+    s.printerType = info.type;
+    s.printerTypeLabel = info.label;
   } catch (_) {
     s.printerKind = pinByName(s.printer || s.printerName) ? 'pin' : 'page';
     s.printerKindSource = 'name';
+    s.printerType = s.printerKind === 'pin' ? 'pin' : 'laser';
+    s.printerTypeLabel = kindLabel(s.printerType);
   }
   return s;
 }
 
-module.exports = { pinByName, printerKind, printerKindInfo, applyPrinterKind, classify, probeWinCaps, PIN_NAME_RE };
+module.exports = {
+  pinByName,
+  printerKind,
+  printerKindInfo,
+  deviceKindInfo,
+  deviceTypeFromText,
+  applyPrinterKind,
+  classify,
+  probeWinCaps,
+  kindLabel,
+  KIND_LABEL,
+  PIN_NAME_RE,
+};

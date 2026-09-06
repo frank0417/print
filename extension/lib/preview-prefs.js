@@ -1,6 +1,8 @@
 import { PAPER_PRESETS } from './paper.js';
 
 export const PREFS_KEY = 'printkit.previewPrefs';
+export const TYPE_OVERRIDES_KEY = 'printkit.printerTypeOverrides';
+export const PRINTER_TYPE_VALUES = ['pin', 'laser', 'inkjet', 'virtual'];
 
 export async function loadPreviewPrefs() {
   try {
@@ -17,6 +19,51 @@ export async function savePreviewPrefs(prefs) {
   } catch (_) {
     /* ignore quota / private mode */
   }
+}
+
+export function isPrinterType(v) {
+  return PRINTER_TYPE_VALUES.indexOf(v) >= 0;
+}
+
+export async function loadPrinterTypeOverrides() {
+  try {
+    const data = await chrome.storage.local.get(TYPE_OVERRIDES_KEY);
+    const raw = data[TYPE_OVERRIDES_KEY] || {};
+    const out = {};
+    for (const key of Object.keys(raw)) {
+      if (isPrinterType(raw[key])) out[key] = raw[key];
+    }
+    return out;
+  } catch (_) {
+    return {};
+  }
+}
+
+/** type=null/'' clears the override for that printer (back to auto). */
+export async function savePrinterTypeOverride(printerName, type) {
+  const all = await loadPrinterTypeOverrides();
+  const key = String(printerName || '');
+  if (!key) return all;
+  if (!type || !isPrinterType(type)) delete all[key];
+  else all[key] = type;
+  try {
+    await chrome.storage.local.set({ [TYPE_OVERRIDES_KEY]: all });
+  } catch (_) {
+    /* ignore */
+  }
+  return all;
+}
+
+export function applyPrinterTypeOverride(settings, overrides) {
+  const out = { ...(settings || {}) };
+  const name = String(out.printer || out.printerName || '');
+  const t = name && overrides ? overrides[name] : '';
+  if (isPrinterType(t)) {
+    out.printerKind = t;
+    out.printerKindSource = 'explicit';
+    out.printerType = t;
+  }
+  return out;
 }
 
 function applyNamedPaper(out, paperName, overlay) {

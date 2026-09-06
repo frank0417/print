@@ -20,7 +20,7 @@ var urlMod = require('url');
 var { spawn, spawnSync, execFileSync } = require('child_process');
 
 var REPO = 'frank0417/print';
-var USER_AGENT = 'PrintKit-Updater/0.5.28';
+var USER_AGENT = 'PrintKit-Updater/0.5.29';
 var HOST_NAME = 'com.printkit.host';
 var EXT_ID = 'memmopnlapcegennpipheiadaonehljd';
 var SETUP_ZIP = {

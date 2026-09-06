@@ -141,8 +141,17 @@ body {
 }
 
 .controls select.printer {
-  width: 140px;
-  max-width: 140px;
+  width: 200px;
+  max-width: 260px;
+}
+
+.controls select.printer-kind {
+  width: 68px;
+}
+
+.controls select.printer-kind.overridden {
+  border-color: #d08a00;
+  background: #fff8e6;
 }
 
 button {

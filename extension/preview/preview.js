@@ -2,7 +2,8 @@ import {
   PAPER_PRESETS,
   resolvePaper,
   normalizeMargins,
-  isPinPrinter,
+  printerTypeLabel,
+  classifyPrinterType,
   matchPinSheet,
   normalizePinSheetName,
   pinUnprintable,
@@ -11,6 +12,8 @@ import {
   loadPreviewPrefs,
   savePreviewPrefs,
   mergeWithSavedPrefs,
+  loadPrinterTypeOverrides,
+  savePrinterTypeOverride,
 } from '../lib/preview-prefs.js';
 
 const params = new URLSearchParams(location.search);
@@ -31,17 +34,63 @@ const els = {
   btnClose: document.getElementById('btnClose'),
   btnSettings: document.getElementById('btnSettings'),
   settingsMenu: document.getElementById('settingsMenu'),
+  printerKind: document.getElementById('printerKind'),
   zoomBar: document.getElementById('zoomBar'),
 };
 
 let job = null;
 let printing = false;
+let printerList = [];
+let typeOverrides = {};
 /** 'fit' | '100' | '150' | '200' — default 100% so preview stays sharp (no blurry downscale). */
 let zoomMode = '100';
 let saveTimer = 0;
 
 function setStatus(text) {
   if (els.status) els.status.textContent = text;
+}
+
+function printerRecord(name) {
+  return printerList.find((p) => p.name === name) || { name: name || '' };
+}
+
+function resolvedPrinterName() {
+  const v = els.printer?.value || '';
+  if (v) return v;
+  const def = printerList.find((p) => p.isDefault);
+  return def ? def.name : '';
+}
+
+function detectedPrinterType(name) {
+  const n = name || resolvedPrinterName();
+  const p = printerRecord(n);
+  return p.kind || classifyPrinterType(n, { driver: p.description, port: p.port });
+}
+
+function resolvedPrinterType(name) {
+  const n = name || resolvedPrinterName();
+  if (!n) return detectedPrinterType(n);
+  return typeOverrides[n] || detectedPrinterType(n);
+}
+
+function isPinSelected() {
+  return resolvedPrinterType() === 'pin';
+}
+
+function printerOptionText(p) {
+  return p.isDefault ? `${p.name}（默认）` : p.name;
+}
+
+function syncTypeSelect() {
+  if (!els.printerKind) return;
+  const name = resolvedPrinterName();
+  const detected = detectedPrinterType(name) || 'laser';
+  const override = typeOverrides[name] || '';
+  els.printerKind.value = override || detected;
+  els.printerKind.classList.toggle('overridden', !!override && override !== detected);
+  els.printerKind.title = override && override !== detected
+    ? `已手动改为「${printerTypeLabel(override)}」，自动识别为「${printerTypeLabel(detected)}」`
+    : `自动识别为「${printerTypeLabel(detected)}」，认错了可以改，只对当前打印机生效`;
 }
 
 function ensureCustomPaperOption() {
@@ -136,7 +185,7 @@ function applySettingsToUi(settings = {}) {
     if (![...els.printer.options].some((o) => o.value === wanted)) {
       const opt = document.createElement('option');
       opt.value = wanted;
-      opt.textContent = wanted;
+      opt.textContent = printerOptionText({ name: wanted });
       els.printer.appendChild(opt);
     }
     els.printer.value = wanted;
@@ -383,7 +432,7 @@ function officePaperSelected() {
 /** 针式机默认三联二等分，避免仍按 A4 297mm 出纸。 */
 function syncPaperForPrinter() {
   if (!els.printer || !els.paperName) return false;
-  if (!isPinPrinter(els.printer.value)) return false;
+  if (!isPinSelected()) return false;
   if (officePaperSelected()) {
     els.paperName.value = 'Pin2';
     els.orientation.value = '2';
@@ -436,7 +485,10 @@ function bindUi() {
     els.marginLeft,
   ]) {
     el?.addEventListener('change', () => {
-      if (el === els.printer) syncPaperForPrinter();
+      if (el === els.printer) {
+        syncTypeSelect();
+        syncPaperForPrinter();
+      }
       if (el === els.paperName && /^(Pin2|Pin3|PinFull)$/.test(els.paperName.value)) {
         els.orientation.value = '2';
       }
@@ -470,31 +522,49 @@ function bindUi() {
   els.settingsMenu?.addEventListener('click', (event) => event.stopPropagation());
   document.addEventListener('click', closeSettings);
 
+  els.printerKind?.addEventListener('change', async () => {
+    const name = resolvedPrinterName();
+    const chosen = els.printerKind.value || '';
+    const detected = detectedPrinterType(name) || 'laser';
+    // Picking the detected type again just clears the override.
+    typeOverrides = await savePrinterTypeOverride(name, chosen === detected ? null : chosen);
+    syncTypeSelect();
+    syncPaperForPrinter();
+    enforcePinMargins();
+    renderJob();
+  });
+
   async function doPrint() {
     closeSettings();
     if (printing) return;
     printing = true;
     if (els.btnPrint) els.btnPrint.disabled = true;
-    if (enforcePinMargins()) renderJob();
-    const ui = readSettingsFromUi();
-    const size = resolveSize(ui);
-    const settings = mergedSettings(ui);
-    settings.pageWidth = size.width;
-    settings.pageHeight = size.height;
-    settings.lockPageBox = true;
-    settings.orientation = size.width >= size.height ? 2 : 1;
-    settings.paperName = ui.paperName || settings.paperName;
-    settings.marginTop = ui.marginTop;
-    settings.marginRight = ui.marginRight;
-    settings.marginBottom = ui.marginBottom;
-    settings.marginLeft = ui.marginLeft;
-    delete settings.contentWidth;
-    delete settings.contentHeight;
-    await persistUiPrefs();
-    setStatus(
-      `正在打印（${settings.orientation === 2 ? '横向' : '纵向'} ${size.width}×${size.height}mm）…`
-    );
     try {
+      if (enforcePinMargins()) renderJob();
+      const ui = readSettingsFromUi();
+      const size = resolveSize(ui);
+      const settings = mergedSettings(ui);
+      settings.pageWidth = size.width;
+      settings.pageHeight = size.height;
+      settings.lockPageBox = true;
+      settings.orientation = size.width >= size.height ? 2 : 1;
+      settings.paperName = ui.paperName || settings.paperName;
+      settings.marginTop = ui.marginTop;
+      settings.marginRight = ui.marginRight;
+      settings.marginBottom = ui.marginBottom;
+      settings.marginLeft = ui.marginLeft;
+      delete settings.contentWidth;
+      delete settings.contentHeight;
+      const kind = resolvedPrinterType();
+      if (kind) {
+        settings.printerKind = kind;
+        settings.printerKindSource = typeOverrides[resolvedPrinterName()] ? 'explicit' : 'name';
+        settings.printerType = kind;
+      }
+      setStatus(
+        `正在打印（${settings.orientation === 2 ? '横向' : '纵向'} ${size.width}×${size.height}mm）…`
+      );
+      persistUiPrefs().catch(() => {});
       const res = await chrome.runtime.sendMessage({
         type: 'PRINT_FROM_PREVIEW',
         jobId,
@@ -515,7 +585,7 @@ function bindUi() {
       }
       window.close();
     } catch (err) {
-      setStatus(err.message || String(err));
+      setStatus('打印失败：' + (err?.message || String(err)));
     } finally {
       printing = false;
       if (els.btnPrint) els.btnPrint.disabled = false;
@@ -523,6 +593,13 @@ function bindUi() {
   }
 
   document.getElementById('printForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    doPrint();
+  });
+
+  // Belt and braces: if the form submit is ever swallowed (validation, focus
+  // quirks), the button click still prints.
+  els.btnPrint?.addEventListener('click', (event) => {
     event.preventDefault();
     doPrint();
   });
@@ -561,16 +638,19 @@ async function loadPrinters() {
   try {
     const res = await chrome.runtime.sendMessage({ type: 'GET_PRINTERS' });
     const list = Array.isArray(res?.printers) ? res.printers : [];
+    printerList = list;
     const current = els.printer.value;
     els.printer.innerHTML = '<option value="">默认打印机</option>';
     for (const p of list) {
       const opt = document.createElement('option');
       opt.value = p.name;
-      const portHint = p.port ? ` · ${p.port}` : '';
-      opt.textContent = p.isDefault ? `${p.name}（默认）${portHint}` : `${p.name}${portHint}`;
+      opt.textContent = printerOptionText(p);
+      const hint = [p.description, p.port].filter(Boolean).join(' · ');
+      if (hint) opt.title = hint;
       els.printer.appendChild(opt);
     }
     if (current) els.printer.value = current;
+    syncTypeSelect();
     if (res?.hostAvailable === false) {
       els.printer.title = '未安装本地打印代理，点打印将打开安装说明';
     }
@@ -594,6 +674,7 @@ async function boot() {
   }
   job = res.job;
   bindUi();
+  typeOverrides = await loadPrinterTypeOverrides();
   const saved = await loadPreviewPrefs();
   applySettingsToUi(job.settings || {});
   if (saved) {
@@ -621,13 +702,14 @@ async function boot() {
         if (![...els.printer.options].some((o) => o.value === wanted)) {
           const opt = document.createElement('option');
           opt.value = wanted;
-          opt.textContent = wanted;
+          opt.textContent = printerOptionText({ name: wanted });
           els.printer.appendChild(opt);
         }
         els.printer.value = wanted;
       } else if (saved && Object.prototype.hasOwnProperty.call(saved, 'printer')) {
         els.printer.value = saved.printer || '';
       }
+      syncTypeSelect();
       const synced = syncPaperForPrinter();
       if (enforcePinMargins() || synced) renderJob();
       persistUiPrefs();
@@ -635,5 +717,13 @@ async function boot() {
     })
     .catch(() => {});
 }
+
+window.addEventListener('error', (event) => {
+  setStatus('页面出错：' + (event.error?.message || event.message || '未知错误'));
+});
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason;
+  setStatus('页面出错：' + (reason?.message || String(reason)));
+});
 
 boot().catch((err) => setStatus(err.message || String(err)));

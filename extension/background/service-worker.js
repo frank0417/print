@@ -3,7 +3,12 @@
  */
 
 import { nativeRequest, probeNativeHost } from './native.js';
-import { loadPreviewPrefs, mergeWithSavedPrefs } from '../lib/preview-prefs.js';
+import {
+  loadPreviewPrefs,
+  mergeWithSavedPrefs,
+  loadPrinterTypeOverrides,
+  applyPrinterTypeOverride,
+} from '../lib/preview-prefs.js';
 
 const jobs = new Map();
 
@@ -212,6 +217,8 @@ async function silentPrintViaNative(payload, opts = {}) {
     const saved = await loadPreviewPrefs();
     settings = mergeWithSavedPrefs(settings, saved);
   }
+  const overrides = await loadPrinterTypeOverrides();
+  settings = applyPrinterTypeOverride(settings, overrides);
   delete settings.zoomMode;
   delete settings.savedAt;
   const body = {

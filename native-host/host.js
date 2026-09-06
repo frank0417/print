@@ -202,7 +202,35 @@ async function doPrint(payload) {
       fs.writeFileSync(pdfPath, Buffer.from(payload.pdfBase64, 'base64'));
     }
 
-    if (!pdfPath) {
+    // IPP/WSD lasers print HTML via Chrome kiosk — skip headless PDF (often
+    // 2–17s with --virtual-time-budget=8000) when we already have pages.
+    let ippHtmlOnly = false;
+    if (
+      !pdfPath &&
+      process.platform === 'win32' &&
+      printer &&
+      Array.isArray(payload.pages) &&
+      payload.pages.length
+    ) {
+      const { getWinPrinterMeta, isIppWsdPrinter } = require('./lib/printers');
+      ippHtmlOnly = isIppWsdPrinter(getWinPrinterMeta(printer));
+    }
+
+    if (!pdfPath && ippHtmlOnly) {
+      const { buildHtmlDocument } = require('./lib/html-to-pdf');
+      htmlPath = path.join(jobDir, 'job.html');
+      fs.writeFileSync(
+        htmlPath,
+        buildHtmlDocument({
+          title: payload.title || 'PrintKit',
+          pages: payload.pages || [],
+          stylesheets: payload.stylesheets || [],
+          settings,
+        }),
+        'utf8'
+      );
+      log('html-only for IPP/WSD (skip pdf)');
+    } else if (!pdfPath) {
       const made = await htmlJobToPdf({
         jobDir,
         title: payload.title || 'PrintKit',

@@ -16,7 +16,7 @@ NODE_VERSION="${PRINTKIT_NODE_VERSION:-22.14.0}"
 WIN_NODE_VERSION="${PRINTKIT_WIN_NODE_VERSION:-12.22.12}"
 STAGE="$DIST/.stage"
 ARTIFACTS="${PRINTKIT_ARTIFACTS:-/opt/cursor/artifacts}"
-VERSION="0.5.28"
+VERSION="0.5.29"
 
 mkdir -p "$DIST" "$CACHE" "$STAGE" "$ARTIFACTS"
 
@@ -99,7 +99,8 @@ build_windows_payload() {
     log "WARN: pdfium.dll not found in tgz"
   fi
 
-  # SumatraPDF: silent bitmap print path for laser/inkjet (fallback for pins).  local sumatra_zip="$CACHE/SumatraPDF-3.5.2-64.zip"
+  # SumatraPDF: silent bitmap print path for laser/inkjet (fallback for pins).
+  local sumatra_zip="$CACHE/SumatraPDF-3.5.2-64.zip"
   download "https://www.sumatrapdfreader.org/dl/rel/3.5.2/SumatraPDF-3.5.2-64.zip" "$sumatra_zip"
   rm -rf "$CACHE/sumatra-extract"
   mkdir -p "$CACHE/sumatra-extract"

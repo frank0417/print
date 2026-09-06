@@ -1,6 +1,6 @@
 # PrintKit · Chrome 打印扩展（对齐 jatoolsPrinter）
 
-当前最新版：**v0.5.17**（可远程/一键升级）
+当前最新版：**v0.5.29**（可远程/一键升级）
 
 用 Chrome 扩展实现网页精确打印，API 对齐经典 **jatoolsPrinter / JCP**。  
 Windows 一键安装包内置 Node 运行时 + 打印代理 + 扩展（另含 PDFtoPrinter），兼容 **Windows 7**。

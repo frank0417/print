@@ -1,6 +1,6 @@
 {
   "name": "printkit-native-host",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "private": true,
   "description": "PrintKit Native Messaging host for Windows and macOS silent printing",
   "main": "host.js",
