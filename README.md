@@ -13,8 +13,28 @@
 | DIV ID 映射分页 `page1`… | ✅ | 支持 `page_div_prefix` |
 | 纸张 / 方向 / 边距 / 份数 | ✅ | `settings` + 预览工具栏 |
 | `settings.printer` | ✅ | 指定打印机名称（需 native-host） |
+| `settings.offsetX` / `offsetY` | ✅ | 套打微调（负值左/上移，解决整体偏右） |
 | `getPrinters()` | ✅ | 经本地代理枚举；未安装会提示安装 |
 | `getHostStatus()` / `openInstallGuide()` | ✅ | 探测代理 / 打开安装说明 |
+
+## 套打偏右 / 右边打不全？
+
+常见原因：边距过大、纸张用成 A4、或打印机原点偏移。
+
+1. **边距设为 0**（当前默认已是 0）
+2. 纸张选实际针式尺寸：`Form241x140` / `Form241x93` 等，不要硬套 A4
+3. 整体仍偏右时，设 `offsetX` 为**负数**（单位 mm）：
+
+```js
+settings: {
+  paperName: 'Form241x140',
+  marginTop: 0, marginRight: 0, marginBottom: 0, marginLeft: 0,
+  offsetX: -3, // 左移 3mm；正数右移
+  offsetY: 0
+}
+```
+
+预览窗工具栏也可直接调「偏移(mm)」。Demo：`demo/ticket.html`。
 
 ## 目录
 
@@ -111,6 +131,25 @@ cd demo && python3 -m http.server 5173
 ```
 
 其它入口：`printKit` / `PrintKit` / `getJCP()`。
+
+### 套打偏移（内容偏右/打不全）
+
+针式连续纸 / 套打时请：
+
+1. **边距设为 0**（默认已是 0；不要再用 10mm）
+2. 纸张选实际尺寸（如 `Form241x140`），不要用 A4 硬套
+3. 若整体仍偏右，设置 **`offsetX` 为负数**（单位 mm，如 `-3` 表示左移 3mm）：
+
+```js
+settings: {
+  paperName: 'Form241x140',
+  marginTop: 0, marginRight: 0, marginBottom: 0, marginLeft: 0,
+  offsetX: -3,  // 负值左移；正值右移
+  offsetY: 0    // 负值上移；正值下移
+}
+```
+
+预览窗工具栏也可直接调「偏移(mm)」。
 
 ## 静默打印链路
 

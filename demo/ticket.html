@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>套打票据 Demo · PrintKit</title>
+    <title>套打运单 Demo · PrintKit</title>
     <style>
       body {
         margin: 0;
@@ -18,6 +18,7 @@
         padding: 14px 16px;
         background: #fff;
         border-bottom: 1px solid #d7dee8;
+        align-items: center;
       }
       button {
         border: 1px solid #d7dee8;
@@ -32,62 +33,92 @@
         border-color: #1f4fd6;
         color: #fff;
       }
-      .canvas {
-        padding: 24px;
+      .hint {
+        flex: 1 1 220px;
+        color: #5b6475;
+        font-size: 13px;
       }
-      /* 票据页：固定尺寸，模拟针式/热敏套打区域 */
+      .canvas { padding: 24px; }
+      /* 针式二等分常见尺寸 241×140mm；字段绝对定位相对纸张左上角 */
       #page1 {
         position: relative;
-        width: 241mm; /* 近似二等分票据宽 */
-        height: 93mm;
+        width: 241mm;
+        height: 140mm;
         margin: 0 auto;
         background: #fff;
         border: 1px dashed #9aa8bd;
         box-shadow: 0 10px 24px rgba(27, 36, 51, 0.08);
         overflow: hidden;
+        box-sizing: border-box;
       }
       .bg {
         position: absolute;
         inset: 0;
-        background:
-          linear-gradient(90deg, transparent 49.5%, #e8edf5 49.5%, #e8edf5 50.5%, transparent 50.5%),
-          repeating-linear-gradient(
-            0deg,
-            transparent,
-            transparent 7mm,
-            rgba(180, 190, 205, 0.25) 7mm,
-            rgba(180, 190, 205, 0.25) 7.2mm
-          );
-        opacity: 0.9;
+        border: 1px solid #333;
+        margin: 4mm;
+        pointer-events: none;
+      }
+      .title {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 8mm;
+        text-align: center;
+        font-size: 16px;
+        font-weight: 700;
       }
       .field {
         position: absolute;
-        font-size: 13px;
+        font-size: 12px;
         white-space: nowrap;
       }
-      .f-no { left: 42mm; top: 12mm; font-weight: 700; }
-      .f-date { left: 160mm; top: 12mm; }
-      .f-payee { left: 36mm; top: 28mm; }
-      .f-amount { left: 36mm; top: 44mm; font-size: 16px; font-weight: 700; }
-      .f-memo { left: 36mm; top: 62mm; color: #445066; }
-      a { color: #1f4fd6; margin-left: 8px; align-self: center; }
+      .f-no { left: 28mm; top: 20mm; font-weight: 700; }
+      .f-from { left: 28mm; top: 32mm; }
+      .f-to { left: 120mm; top: 32mm; }
+      .f-goods { left: 28mm; top: 48mm; }
+      .f-qty { left: 120mm; top: 48mm; }
+      .f-memo { left: 28mm; top: 110mm; color: #445066; }
+      label.inline {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        font-size: 13px;
+        color: #5b6475;
+      }
+      input[type='number'] {
+        width: 64px;
+        height: 30px;
+        border: 1px solid #d7dee8;
+        border-radius: 6px;
+        padding: 0 6px;
+      }
+      a { color: #1f4fd6; margin-left: 8px; }
     </style>
   </head>
   <body>
     <div class="bar">
       <button class="primary" type="button" onclick="preview()">打印预览...</button>
-      <button type="button" onclick="printNow()">直接打印</button>
-      <a href="./index.html">← 返回多页示例</a>
+      <button type="button" onclick="printNow()">静默打印</button>
+      <label class="inline">左右偏移(mm)
+        <input id="offsetX" type="number" step="0.5" value="0" title="负值=左移，正值=右移" />
+      </label>
+      <label class="inline">上下偏移(mm)
+        <input id="offsetY" type="number" step="0.5" value="0" title="负值=上移，正值=下移" />
+      </label>
+      <span class="hint">若整体偏右：把「左右偏移」设为负数（如 -3）。边距请保持 0。</span>
+      <a href="./index.html">← 返回</a>
     </div>
 
     <div class="canvas">
       <div id="page1">
         <div class="bg" aria-hidden="true"></div>
-        <div class="field f-no">No. PK-884215</div>
-        <div class="field f-date">2026-08-18</div>
-        <div class="field f-payee">收款单位：上海示例科技有限公司</div>
-        <div class="field f-amount">¥ 12,680.00</div>
-        <div class="field f-memo">用途：软件服务费（套打定位示例）</div>
+        <div class="title">航盛物流公司货物运单（套打示例）</div>
+        <div class="field f-no">单号：26090608310001</div>
+        <div class="field f-from">发站：河北冀州胜芳站</div>
+        <div class="field f-to">到站：冠县站</div>
+        <div class="field f-goods">品名：配件</div>
+        <div class="field f-qty">件数：12</div>
+        <div class="field f-memo">制单人：测试 · 套打请用纸张 Form241x140，边距 0</div>
       </div>
     </div>
 
@@ -97,12 +128,17 @@
           documents: document,
           copyrights: 'PrintKit ticket demo',
           settings: {
-            paperName: 'A4',
-            orientation: 2, // 横向
-            marginTop: 5,
-            marginRight: 5,
-            marginBottom: 5,
-            marginLeft: 5,
+            // 与 #page1 尺寸一致；勿用 A4，否则内容会被裁切/偏移
+            paperName: 'Form241x140',
+            pageWidth: 241,
+            pageHeight: 140,
+            orientation: 1,
+            marginTop: 0,
+            marginRight: 0,
+            marginBottom: 0,
+            marginLeft: 0,
+            offsetX: Number(document.getElementById('offsetX').value) || 0,
+            offsetY: Number(document.getElementById('offsetY').value) || 0,
           },
         };
       }

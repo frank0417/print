@@ -17,8 +17,13 @@
             <option value="A3">A3</option>
             <option value="A5">A5</option>
             <option value="B5">B5</option>
+            <option value="Form241x140">针式 241×140</option>
+            <option value="Form241x93">针式 241×93</option>
+            <option value="Form241x280">针式 241×280</option>
+            <option value="Form210x140">针式 210×140</option>
             <option value="Letter">Letter</option>
             <option value="Legal">Legal</option>
+            <option value="Custom">自定义</option>
           </select>
         </label>
         <label>
@@ -35,10 +40,17 @@
         <label>
           边距(mm)
           <span class="margins">
-            <input id="marginTop" type="number" title="上" value="10" />
-            <input id="marginRight" type="number" title="右" value="10" />
-            <input id="marginBottom" type="number" title="下" value="10" />
-            <input id="marginLeft" type="number" title="左" value="10" />
+            <input id="marginTop" type="number" step="0.1" title="上" value="0" />
+            <input id="marginRight" type="number" step="0.1" title="右" value="0" />
+            <input id="marginBottom" type="number" step="0.1" title="下" value="0" />
+            <input id="marginLeft" type="number" step="0.1" title="左" value="0" />
+          </span>
+        </label>
+        <label>
+          偏移(mm)
+          <span class="margins">
+            <input id="offsetX" type="number" step="0.1" title="左右：负值左移" value="0" />
+            <input id="offsetY" type="number" step="0.1" title="上下：负值上移" value="0" />
           </span>
         </label>
         <button id="btnPrint" class="primary" type="button">打印...</button>

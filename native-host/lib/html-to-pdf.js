@@ -13,6 +13,10 @@ const PAPER_PRESETS = {
   B5: { width: 176, height: 250 },
   Letter: { width: 216, height: 279 },
   Legal: { width: 216, height: 356 },
+  Form241x140: { width: 241, height: 140 },
+  Form241x93: { width: 241, height: 93 },
+  Form241x280: { width: 241, height: 280 },
+  Form210x140: { width: 210, height: 140 },
 };
 
 function resolveChromePath() {
@@ -51,6 +55,13 @@ function resolveChromePath() {
   return which(['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'microsoft-edge']);
 }
 
+function num(v, fallback) {
+  if (v === 0 || v === '0') return 0;
+  if (v === undefined || v === null || v === '') return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function resolvePaper(settings = {}) {
   const name = settings.paperName || settings.paper || 'A4';
   const preset = PAPER_PRESETS[name] || PAPER_PRESETS.A4;
@@ -60,19 +71,18 @@ function resolvePaper(settings = {}) {
   if (orientation === 2 && width < height) {
     [width, height] = [height, width];
   }
+  // Default margins 0 for form overlay (套打). Non-zero margins shift absolute content.
   const margins = {
-    top: num(settings.marginTop, 10),
-    right: num(settings.marginRight, 10),
-    bottom: num(settings.marginBottom, 10),
-    left: num(settings.marginLeft, 10),
+    top: num(settings.marginTop, 0),
+    right: num(settings.marginRight, 0),
+    bottom: num(settings.marginBottom, 0),
+    left: num(settings.marginLeft, 0),
   };
-  return { name, width, height, orientation, margins };
-}
-
-function num(v, fallback) {
-  if (v === 0 || v === '0') return 0;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
+  const offsets = {
+    x: num(settings.offsetX ?? settings.printOffsetX, 0),
+    y: num(settings.offsetY ?? settings.printOffsetY, 0),
+  };
+  return { name, width, height, orientation, margins, offsets };
 }
 
 function escapeHtml(s) {
@@ -89,15 +99,21 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
   for (const sheet of stylesheets || []) {
     if (sheet.type === 'style' && sheet.css) {
       styleTags.push(`<style>${sheet.css}</style>`);
-    } else if (sheet.type === 'link' && sheet.href) {
+    } else if ((sheet.type === 'link' || sheet.type === 'stylesheet') && sheet.href) {
       styleTags.push(`<link rel="stylesheet" href="${escapeHtml(sheet.href)}" />`);
     }
   }
 
+  // Content origin = paper edge (@page margin 0). Apply margin+offset once via translate.
+  const tx = paper.margins.left + paper.offsets.x;
+  const ty = paper.margins.top + paper.offsets.y;
+
   const pageHtml = (pages || [])
     .map((p, i) => {
       const html = typeof p === 'string' ? p : p.html || '';
-      return `<section class="pk-page" data-page="${i + 1}">${html}</section>`;
+      return `<section class="pk-page" data-page="${i + 1}">
+  <div class="pk-page-inner">${html}</div>
+</section>`;
     })
     .join('\n');
 
@@ -109,24 +125,36 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
   <style>
     @page {
       size: ${paper.width}mm ${paper.height}mm;
-      margin: ${paper.margins.top}mm ${paper.margins.right}mm ${paper.margins.bottom}mm ${paper.margins.left}mm;
+      margin: 0;
     }
     html, body {
       margin: 0;
       padding: 0;
       background: #fff;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
     .pk-page {
-      width: ${paper.width - paper.margins.left - paper.margins.right}mm;
-      min-height: ${paper.height - paper.margins.top - paper.margins.bottom}mm;
+      width: ${paper.width}mm;
+      height: ${paper.height}mm;
       page-break-after: always;
       break-after: page;
       overflow: hidden;
       box-sizing: border-box;
+      position: relative;
     }
     .pk-page:last-child {
       page-break-after: auto;
       break-after: auto;
+    }
+    .pk-page-inner {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: ${paper.width}mm;
+      min-height: ${paper.height}mm;
+      box-sizing: border-box;
+      transform: translate(${tx}mm, ${ty}mm);
     }
   </style>
   ${styleTags.join('\n')}
@@ -150,20 +178,24 @@ async function htmlJobToPdf({ jobDir, title, pages, stylesheets, settings }) {
   const html = buildHtmlDocument({ title, pages, stylesheets, settings });
   fs.writeFileSync(htmlPath, html, 'utf8');
 
-  // file:// URL
   const fileUrl =
     process.platform === 'win32'
       ? 'file:///' + htmlPath.replace(/\\/g, '/')
       : 'file://' + htmlPath;
 
+  const paper = resolvePaper(settings);
+  // Prefer virtual time + no margins; @page size drives paper dimensions.
   const args = [
     '--headless=new',
     '--disable-gpu',
     '--no-first-run',
     '--no-default-browser-check',
     '--allow-file-access-from-files',
+    '--hide-scrollbars',
     `--print-to-pdf=${pdfPath}`,
     '--no-pdf-header-footer',
+    // Hint paper size via window size roughly matching aspect (helps some Chrome builds)
+    `--force-device-scale-factor=1`,
     fileUrl,
   ];
 
@@ -179,6 +211,18 @@ async function htmlJobToPdf({ jobDir, title, pages, stylesheets, settings }) {
       `HTML 转 PDF 失败: ${(r.stderr || r.stdout || `exit ${r.status}`).toString().trim()}`
     );
   }
+
+  // Attach paper meta for debugging
+  try {
+    fs.writeFileSync(
+      path.join(jobDir, 'paper.json'),
+      JSON.stringify(paper, null, 2),
+      'utf8'
+    );
+  } catch (_) {
+    /* ignore */
+  }
+
   return pdfPath;
 }
 
@@ -187,4 +231,5 @@ module.exports = {
   buildHtmlDocument,
   resolveChromePath,
   resolvePaper,
+  PAPER_PRESETS,
 };

@@ -66,12 +66,26 @@
     return sheets;
   }
 
+  function pxToMm(px) {
+    const n = Number(px);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.round(((n * 25.4) / 96) * 100) / 100;
+  }
+
   function normalizeDoc(myDoc = {}) {
     if (!myDoc || typeof myDoc !== 'object') {
       throw new Error('PrintKit: myDoc 必须是对象');
     }
 
     const settings = { ...(myDoc.settings || {}) };
+    // 套打默认边距 0，避免内容整体右偏被裁切（可用 settings.margin* / offsetX/Y 微调）
+    if (settings.marginTop === undefined && settings.topMargin === undefined) settings.marginTop = 0;
+    if (settings.marginRight === undefined && settings.rightMargin === undefined) settings.marginRight = 0;
+    if (settings.marginBottom === undefined && settings.bottomMargin === undefined) settings.marginBottom = 0;
+    if (settings.marginLeft === undefined && settings.leftMargin === undefined) settings.marginLeft = 0;
+    if (settings.offsetX === undefined) settings.offsetX = 0;
+    if (settings.offsetY === undefined) settings.offsetY = 0;
+
     const prefix = myDoc.page_div_prefix || myDoc.pageDivPrefix || '';
     let pagesHtml = [];
     let stylesheets = [];
@@ -86,7 +100,13 @@
           return { index: i + 1, id: `page${i + 1}`, html: item };
         }
         if (item && item.nodeType === 1) {
-          return { index: i + 1, id: item.id || `page${i + 1}`, html: item.outerHTML };
+          return {
+            index: i + 1,
+            id: item.id || `page${i + 1}`,
+            html: item.outerHTML,
+            width: item.offsetWidth || null,
+            height: item.offsetHeight || null,
+          };
         }
         return { index: i + 1, id: `page${i + 1}`, html: String(item ?? '') };
       });
@@ -111,6 +131,19 @@
         width: el.offsetWidth || null,
         height: el.offsetHeight || null,
       }));
+    }
+
+    // Auto paper size from first page DOM size when not explicitly set
+    if (!settings.pageWidth && pagesHtml[0]?.width) {
+      const w = pxToMm(pagesHtml[0].width);
+      if (w) settings.pageWidth = w;
+    }
+    if (!settings.pageHeight && pagesHtml[0]?.height) {
+      const h = pxToMm(pagesHtml[0].height);
+      if (h) settings.pageHeight = h;
+    }
+    if (settings.pageWidth && settings.pageHeight && !settings.paperName) {
+      settings.paperName = 'Custom';
     }
 
     // Overlay / 套打底图：仅预览可见
@@ -229,7 +262,7 @@
       return true;
     },
 
-    version: '0.3.0',
+    version: '0.3.2',
   };
 
   // Classic global

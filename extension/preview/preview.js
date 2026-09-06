@@ -1,4 +1,10 @@
-import { PAPER_PRESETS, resolvePaper, normalizeMargins } from '../lib/paper.js';
+import {
+  PAPER_PRESETS,
+  resolvePaper,
+  normalizeMargins,
+  normalizeOffsets,
+  pxToMm,
+} from '../lib/paper.js';
 
 const params = new URLSearchParams(location.search);
 const jobId = params.get('jobId');
@@ -13,6 +19,8 @@ const els = {
   marginRight: document.getElementById('marginRight'),
   marginBottom: document.getElementById('marginBottom'),
   marginLeft: document.getElementById('marginLeft'),
+  offsetX: document.getElementById('offsetX'),
+  offsetY: document.getElementById('offsetY'),
   btnPrint: document.getElementById('btnPrint'),
   btnClose: document.getElementById('btnClose'),
 };
@@ -24,7 +32,7 @@ function setStatus(text) {
 }
 
 function readSettingsFromUi() {
-  return {
+  const settings = {
     paperName: els.paperName.value,
     orientation: Number(els.orientation.value),
     copies: Math.max(1, Number(els.copies.value) || 1),
@@ -32,11 +40,17 @@ function readSettingsFromUi() {
     marginRight: Number(els.marginRight.value),
     marginBottom: Number(els.marginBottom.value),
     marginLeft: Number(els.marginLeft.value),
+    offsetX: Number(els.offsetX.value),
+    offsetY: Number(els.offsetY.value),
   };
+  // Preserve custom page size if present on job
+  if (job?.settings?.pageWidth) settings.pageWidth = job.settings.pageWidth;
+  if (job?.settings?.pageHeight) settings.pageHeight = job.settings.pageHeight;
+  return settings;
 }
 
 function applySettingsToUi(settings = {}) {
-  if (settings.paperName && PAPER_PRESETS[settings.paperName]) {
+  if (settings.paperName && (PAPER_PRESETS[settings.paperName] || settings.paperName === 'Custom')) {
     els.paperName.value = settings.paperName;
   }
   if (settings.orientation === 1 || settings.orientation === 2) {
@@ -48,6 +62,45 @@ function applySettingsToUi(settings = {}) {
   els.marginRight.value = String(margins.right);
   els.marginBottom.value = String(margins.bottom);
   els.marginLeft.value = String(margins.left);
+  const offsets = normalizeOffsets(settings);
+  els.offsetX.value = String(offsets.x);
+  els.offsetY.value = String(offsets.y);
+}
+
+/**
+ * Infer page size from captured page element px size when custom/form size not set.
+ */
+function enrichSettingsFromPages(settings, pages) {
+  const next = { ...settings };
+  const first = pages?.[0];
+  if (!first) return next;
+
+  const wMm = pxToMm(first.width);
+  const hMm = pxToMm(first.height);
+  if (!next.pageWidth && wMm && wMm > 50) {
+    next.pageWidth = wMm;
+    if (!PAPER_PRESETS[next.paperName]) next.paperName = 'Custom';
+    // If content is clearly wider than tall and orientation not set landscape for forms
+  }
+  if (!next.pageHeight && hMm && hMm > 30) {
+    next.pageHeight = hMm;
+  }
+  // Prefer matching continuous-form presets when close
+  if (next.pageWidth && next.pageHeight) {
+    for (const [name, preset] of Object.entries(PAPER_PRESETS)) {
+      if (!name.startsWith('Form')) continue;
+      if (
+        Math.abs(preset.width - next.pageWidth) < 3 &&
+        Math.abs(preset.height - next.pageHeight) < 3
+      ) {
+        next.paperName = name;
+        delete next.pageWidth;
+        delete next.pageHeight;
+        break;
+      }
+    }
+  }
+  return next;
 }
 
 function resolveSize(settings) {
@@ -55,6 +108,11 @@ function resolveSize(settings) {
   return { width: paper.widthMm, height: paper.heightMm };
 }
 
+/**
+ * Print CSS: @page margin MUST be 0 for 套打.
+ * Margins + offsets are applied once via transform on .sheet-inner.
+ * Avoids the old double-margin bug (padding + @page) that shifted content right.
+ */
 function ensurePrintStyle(settings) {
   let style = document.getElementById('dynamic-print-style');
   if (!style) {
@@ -64,18 +122,36 @@ function ensurePrintStyle(settings) {
   }
   const { width, height } = resolveSize(settings);
   const m = normalizeMargins(settings);
+  const o = normalizeOffsets(settings);
+  const tx = m.left + o.x;
+  const ty = m.top + o.y;
   style.textContent = `
     @page {
       size: ${width}mm ${height}mm;
-      margin: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm;
+      margin: 0 !important;
+    }
+    @media print {
+      .sheet {
+        width: ${width}mm !important;
+        height: ${height}mm !important;
+        min-height: ${height}mm !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        overflow: hidden !important;
+      }
+      .sheet-inner {
+        transform: translate(${tx}mm, ${ty}mm);
+      }
     }
   `;
 }
 
 function renderJob() {
-  const settings = { ...job.settings, ...readSettingsFromUi() };
+  let settings = { ...job.settings, ...readSettingsFromUi() };
+  settings = enrichSettingsFromPages(settings, job.pages);
   const size = resolveSize(settings);
   const margins = normalizeMargins(settings);
+  const offsets = normalizeOffsets(settings);
   ensurePrintStyle(settings);
 
   els.stage.innerHTML = '';
@@ -87,7 +163,7 @@ function renderJob() {
       s.dataset.printkitStyle = '1';
       s.textContent = sheet.css;
       document.head.appendChild(s);
-    } else if (sheet.type === 'link' && sheet.href) {
+    } else if ((sheet.type === 'link' || sheet.type === 'stylesheet') && sheet.href) {
       const link = document.createElement('link');
       link.rel = 'stylesheet';
       link.href = sheet.href;
@@ -96,12 +172,16 @@ function renderJob() {
     }
   }
 
+  const tx = margins.left + offsets.x;
+  const ty = margins.top + offsets.y;
+
   for (const page of job.pages) {
     const sheet = document.createElement('section');
     sheet.className = 'sheet';
     sheet.style.width = `${size.width}mm`;
     sheet.style.minHeight = `${size.height}mm`;
-    sheet.style.padding = `${margins.top}mm ${margins.right}mm ${margins.bottom}mm ${margins.left}mm`;
+    // Screen preview: no padding — position via transform only (same as print)
+    sheet.style.padding = '0';
 
     if (job.overlay && typeof job.overlay === 'string') {
       const overlay = document.createElement('div');
@@ -112,19 +192,22 @@ function renderJob() {
 
     const inner = document.createElement('div');
     inner.className = 'sheet-inner';
+    inner.style.transform = `translate(${tx}mm, ${ty}mm)`;
     inner.innerHTML = page.html;
     sheet.appendChild(inner);
 
     const label = document.createElement('div');
     label.className = 'sheet-label no-print';
-    label.textContent = `${page.id} · ${size.width}×${size.height}mm`;
+    label.textContent = `${page.id} · ${size.width}×${size.height}mm · 偏移 ${offsets.x},${offsets.y}`;
     sheet.appendChild(label);
 
     els.stage.appendChild(sheet);
   }
 
   document.title = `${job.title || '打印预览'} · PrintKit`;
-  setStatus(`共 ${job.pages.length} 页 · ${settings.paperName} · 任务 ${job.id}`);
+  setStatus(
+    `共 ${job.pages.length} 页 · ${settings.paperName || 'Custom'} ${size.width}×${size.height}mm · 偏移(${offsets.x},${offsets.y})`
+  );
 }
 
 function bindUi() {
@@ -136,13 +219,15 @@ function bindUi() {
     els.marginRight,
     els.marginBottom,
     els.marginLeft,
+    els.offsetX,
+    els.offsetY,
   ]) {
     el.addEventListener('change', renderJob);
     el.addEventListener('input', renderJob);
   }
 
   els.btnPrint.addEventListener('click', () => {
-    const settings = readSettingsFromUi();
+    const settings = { ...job.settings, ...readSettingsFromUi() };
     ensurePrintStyle(settings);
     const copies = Math.max(1, settings.copies || 1);
     if (copies > 1) {
@@ -173,7 +258,9 @@ async function boot() {
     return;
   }
   job = res.job;
-  applySettingsToUi(job.settings || {});
+  // Auto-size from captured DOM before applying to UI
+  job.settings = enrichSettingsFromPages(job.settings || {}, job.pages);
+  applySettingsToUi(job.settings);
   bindUi();
   renderJob();
 

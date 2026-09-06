@@ -169,6 +169,7 @@ button:hover {
     box-shadow: none;
     page-break-after: always;
     break-after: page;
+    overflow: hidden !important;
   }
 
   .sheet:last-child {
