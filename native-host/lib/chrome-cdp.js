@@ -225,7 +225,7 @@ async function htmlToPdfViaCdp({ htmlPath, pdfPath, settings }) {
       }
       await sleep(50);
     }
-    await sleep(80);
+    await sleep(20);
 
     const paper = resolvePaper(settings);
     const margins = paper.margins || {};
@@ -233,7 +233,10 @@ async function htmlToPdfViaCdp({ htmlPath, pdfPath, settings }) {
       'Page.printToPDF',
       {
         printBackground: true,
-        preferCSSPageSize: true,
+        // false: paperWidth/Height win over any @page in business CSS
+        preferCSSPageSize: false,
+        // paper inches already encode 横/竖 — never also set landscape
+        landscape: false,
         displayHeaderFooter: false,
         scale: 1,
         paperWidth: paper.width / 25.4,

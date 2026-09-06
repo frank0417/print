@@ -126,7 +126,9 @@
       const mm = (px) => Math.round(((Number(px) * 25.4) / 96) * 100) / 100;
       settings.pageWidth = mm(first.width);
       settings.pageHeight = mm(first.height);
-      settings.paperName = settings.paperName || 'Custom';
+      // Always Custom — keeping paperName=A4 while the box is 241×93 makes
+      // the host send A4-landscape and rotate pin-feed tickets 90°.
+      settings.paperName = 'Custom';
       // Auto landscape when the page box is wider than tall (common for waybills)
       if (settings.orientation == null && settings.pageWidth > settings.pageHeight) {
         settings.orientation = 2;

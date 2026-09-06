@@ -52,20 +52,24 @@ function resolveChromePath() {
   return which(['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'microsoft-edge']);
 }
 
+function truthy(v) {
+  return v === true || v === 1 || v === '1' || v === 'true';
+}
+
 function resolvePaper(settings = {}) {
   const name = settings.paperName || settings.paper || 'A4';
   const preset = PAPER_PRESETS[name] || PAPER_PRESETS.A4;
   let width = Number(settings.pageWidth || settings.width || preset.width);
   let height = Number(settings.pageHeight || settings.height || preset.height);
-  // 1 = portrait (纵向), 2 = landscape (横向). Always apply — custom sizes included.
   const orientation = Number(settings.orientation || 1) === 2 ? 2 : 1;
-  if (orientation === 2 && width < height) {
-    [width, height] = [height, width];
-  } else if (orientation === 1 && width > height) {
-    [width, height] = [height, width];
+  // Preview sends the sheet mm it actually drew. Do not swap again.
+  if (!truthy(settings.lockPageBox)) {
+    if (orientation === 2 && width < height) {
+      [width, height] = [height, width];
+    } else if (orientation === 1 && width > height) {
+      [width, height] = [height, width];
+    }
   }
-  // Default 0mm — continuous-form / pin printers blur when content is
-  // letterboxed then "fit to page" by the driver.
   const margins = {
     top: num(settings.marginTop, 0),
     right: num(settings.marginRight, 0),
@@ -73,6 +77,44 @@ function resolvePaper(settings = {}) {
     left: num(settings.marginLeft, 0),
   };
   return { name, width, height, orientation, margins };
+}
+
+function namedPresetMatches(paper) {
+  const preset = PAPER_PRESETS[paper.name];
+  if (!preset) return false;
+  const a0 = Math.min(paper.width, paper.height);
+  const a1 = Math.max(paper.width, paper.height);
+  const b0 = Math.min(preset.width, preset.height);
+  const b1 = Math.max(preset.width, preset.height);
+  return Math.abs(a0 - b0) <= 3 && Math.abs(a1 - b1) <= 3;
+}
+
+/**
+ * Map a resolved page box to printer DEVMODE / Chrome / Sumatra flags.
+ *
+ * resolvePaper() already swaps mm to the real printable box (e.g. 241×93).
+ * Custom pin-feed / waybill forms ARE that box — sending "landscape" again
+ * rotates another 90° and the preview (横) no longer matches the paper (竖).
+ * Named A4/Letter/etc. still use the portrait preset + landscape flag.
+ */
+function printerMedia(paper) {
+  const preset = PAPER_PRESETS[paper && paper.name];
+  if (preset && namedPresetMatches(paper)) {
+    return {
+      widthMm: preset.width,
+      heightMm: preset.height,
+      landscape: Number(paper.orientation) === 2 || paper.width > paper.height + 1,
+      custom: false,
+      name: paper.name,
+    };
+  }
+  return {
+    widthMm: Number(paper.width) || 210,
+    heightMm: Number(paper.height) || 297,
+    landscape: false,
+    custom: true,
+    name: 'CUSTOM',
+  };
 }
 
 function num(v, fallback) {
@@ -299,9 +341,38 @@ async function htmlJobToPdf({ jobDir, title, pages, stylesheets, settings }) {
   return { pdfPath: pdfPath, htmlPath: htmlPath };
 }
 
+function readPdfPageSize(pdfPath) {
+  try {
+    const buf = fs.readFileSync(pdfPath);
+    const text = buf.toString('latin1');
+    const m = /\/MediaBox\s*\[\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s*\]/.exec(
+      text
+    );
+    if (!m) return null;
+    const wPt = Math.abs(Number(m[3]) - Number(m[1]));
+    const hPt = Math.abs(Number(m[4]) - Number(m[2]));
+    if (!wPt || !hPt) return null;
+    return {
+      widthMm: (wPt * 25.4) / 72,
+      heightMm: (hPt * 25.4) / 72,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function isWideBox(width, height) {
+  return Number(width) >= Number(height) - 0.5;
+}
+
 module.exports = {
   htmlJobToPdf,
   buildHtmlDocument,
   resolveChromePath,
   resolvePaper,
+  printerMedia,
+  readPdfPageSize,
+  isWideBox,
+  PAPER_PRESETS,
 };
+

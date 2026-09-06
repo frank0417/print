@@ -106,7 +106,7 @@ async function handle(msg) {
       return {
         ok: true,
         pong: true,
-        version: '0.2.4',
+        version: '0.2.9',
         platform: process.platform,
         arch: process.arch,
         node: process.version,
@@ -115,7 +115,7 @@ async function handle(msg) {
     case 'getHostInfo':
       return {
         ok: true,
-        version: '0.2.4',
+        version: '0.2.9',
         platform: process.platform,
         arch: process.arch,
         node: process.version,

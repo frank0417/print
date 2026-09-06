@@ -3,6 +3,7 @@
  */
 
 import { nativeRequest, probeNativeHost } from './native.js';
+import { loadPreviewPrefs, mergeWithSavedPrefs } from '../lib/preview-prefs.js';
 
 const jobs = new Map();
 
@@ -178,7 +179,7 @@ async function printFromPreview(jobId, settings = {}) {
   await persistJob(jobId, merged);
 
   try {
-    const result = await silentPrintViaNative(merged);
+    const result = await silentPrintViaNative(merged, { applySavedPrefs: false });
     return {
       ok: true,
       mode: 'native-silent',
@@ -199,10 +200,17 @@ async function printFromPreview(jobId, settings = {}) {
   }
 }
 
-async function silentPrintViaNative(payload) {
+async function silentPrintViaNative(payload, opts = {}) {
+  let settings = { ...(payload.settings || {}) };
+  if (opts.applySavedPrefs !== false) {
+    const saved = await loadPreviewPrefs();
+    settings = mergeWithSavedPrefs(settings, saved);
+  }
+  delete settings.zoomMode;
+  delete settings.savedAt;
   const body = {
     title: payload.title,
-    settings: payload.settings || {},
+    settings,
   };
   if (payload.pdfBase64) {
     body.pdfBase64 = payload.pdfBase64;

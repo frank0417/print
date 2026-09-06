@@ -1,4 +1,9 @@
 import { PAPER_PRESETS, resolvePaper, normalizeMargins } from '../lib/paper.js';
+import {
+  loadPreviewPrefs,
+  savePreviewPrefs,
+  mergeWithSavedPrefs,
+} from '../lib/preview-prefs.js';
 
 const params = new URLSearchParams(location.search);
 const jobId = params.get('jobId');
@@ -25,37 +30,75 @@ let job = null;
 let printing = false;
 /** 'fit' | '100' | '150' | '200' — default 100% so preview stays sharp (no blurry downscale). */
 let zoomMode = '100';
+let saveTimer = 0;
 
 function setStatus(text) {
   if (els.status) els.status.textContent = text;
 }
 
+function ensureCustomPaperOption() {
+  if (![...els.paperName.options].some((o) => o.value === 'Custom')) {
+    const opt = document.createElement('option');
+    opt.value = 'Custom';
+    opt.textContent = '自定义';
+    els.paperName.appendChild(opt);
+  }
+}
+
 function readSettingsFromUi() {
-  const printer = els.printer?.value || '';
-  return {
-    paperName: els.paperName.value,
+  const paperName = els.paperName.value;
+  const ui = {
+    paperName,
     orientation: Number(els.orientation.value),
     copies: Math.max(1, Number(els.copies.value) || 1),
     marginTop: Number(els.marginTop.value),
     marginRight: Number(els.marginRight.value),
     marginBottom: Number(els.marginBottom.value),
     marginLeft: Number(els.marginLeft.value),
-    printer: printer || undefined,
+    printer: els.printer?.value || '',
   };
+  if (paperName === 'Custom') {
+    const w = Number(job?.settings?.pageWidth);
+    const h = Number(job?.settings?.pageHeight);
+    if (Number.isFinite(w) && w > 0) ui.pageWidth = w;
+    if (Number.isFinite(h) && h > 0) ui.pageHeight = h;
+  }
+  return ui;
+}
+
+function persistUiPrefs() {
+  const ui = readSettingsFromUi();
+  const prefs = {
+    ...ui,
+    zoomMode,
+    savedAt: Date.now(),
+  };
+  if (prefs.paperName === 'Custom') {
+    const size = resolveSize(ui);
+    prefs.pageWidth = size.width;
+    prefs.pageHeight = size.height;
+  } else {
+    delete prefs.pageWidth;
+    delete prefs.pageHeight;
+  }
+  return savePreviewPrefs(prefs);
+}
+
+function schedulePersist() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(persistUiPrefs, 200);
 }
 
 function applySettingsToUi(settings = {}) {
-  if (
+  const named = settings.paperName && PAPER_PRESETS[settings.paperName];
+  if (named) {
+    els.paperName.value = settings.paperName;
+  } else if (
+    settings.paperName === 'Custom' ||
     settings.pageWidth ||
-    settings.pageHeight ||
-    (settings.paperName && !PAPER_PRESETS[settings.paperName])
+    settings.pageHeight
   ) {
-    if (![...els.paperName.options].some((o) => o.value === 'Custom')) {
-      const opt = document.createElement('option');
-      opt.value = 'Custom';
-      opt.textContent = '自定义';
-      els.paperName.appendChild(opt);
-    }
+    ensureCustomPaperOption();
     els.paperName.value = 'Custom';
   } else if (settings.paperName && PAPER_PRESETS[settings.paperName]) {
     els.paperName.value = settings.paperName;
@@ -73,6 +116,10 @@ function applySettingsToUi(settings = {}) {
       els.printer.appendChild(opt);
     }
     els.printer.value = wanted;
+  } else if (settings.printer === '' || settings.printer === undefined) {
+    if (Object.prototype.hasOwnProperty.call(settings, 'printer') && els.printer) {
+      els.printer.value = '';
+    }
   }
   const margins = normalizeMargins(settings);
   els.marginTop.value = String(margins.top);
@@ -81,11 +128,14 @@ function applySettingsToUi(settings = {}) {
   els.marginLeft.value = String(margins.left);
 }
 
+function mergedSettings(ui = readSettingsFromUi()) {
+  return mergeWithSavedPrefs(job?.settings || {}, ui);
+}
+
 function resolveSize(settings) {
-  const merged = { ...settings };
+  const merged = mergedSettings(settings);
   if (merged.paperName === 'Custom') delete merged.paperName;
-  // Keep inferred pageWidth/pageHeight from inject.js
-  const paper = resolvePaper({ ...job?.settings, ...merged });
+  const paper = resolvePaper(merged);
   return { width: paper.widthMm, height: paper.heightMm };
 }
 
@@ -108,14 +158,14 @@ function ensurePrintStyle(settings) {
 
 function statusLine(size) {
   const zoomLabel = zoomMode === 'fit' ? '适合窗口' : `${zoomMode}%`;
-  const orientLabel = Number(readSettingsFromUi().orientation) === 2 ? '横向' : '纵向';
+  const orientLabel = size.width >= size.height ? '横向' : '纵向';
   return `共 ${job.pages.length} 页 · ${size.width}×${size.height}mm · ${orientLabel} · 预览 ${zoomLabel} · 任务 ${job.id}`;
 }
 
 function renderJob() {
-  const settings = { ...job.settings, ...readSettingsFromUi() };
+  const settings = mergedSettings();
   const size = resolveSize(settings);
-  const margins = normalizeMargins({ ...job.settings, ...settings });
+  const margins = normalizeMargins(settings);
   ensurePrintStyle(settings);
 
   els.stage.innerHTML = '';
@@ -240,9 +290,10 @@ function setZoomMode(mode) {
   }
   fitSheets();
   if (job) {
-    const size = resolveSize({ ...job.settings, ...readSettingsFromUi() });
+    const size = resolveSize();
     setStatus(statusLine(size));
   }
+  schedulePersist();
 }
 
 function bindUi() {
@@ -250,13 +301,20 @@ function bindUi() {
     els.paperName,
     els.orientation,
     els.copies,
+    els.printer,
     els.marginTop,
     els.marginRight,
     els.marginBottom,
     els.marginLeft,
   ]) {
-    el?.addEventListener('change', renderJob);
-    el?.addEventListener('input', renderJob);
+    el?.addEventListener('change', () => {
+      renderJob();
+      persistUiPrefs();
+    });
+    el?.addEventListener('input', () => {
+      renderJob();
+      schedulePersist();
+    });
   }
 
   els.zoomBar?.addEventListener('click', (event) => {
@@ -285,19 +343,17 @@ function bindUi() {
     printing = true;
     if (els.btnPrint) els.btnPrint.disabled = true;
     const ui = readSettingsFromUi();
-    const settings = {
-      ...job.settings,
-      ...ui,
-    };
-    // Apply orientation to page size so host/IE get the real landscape/portrait box.
-    // Do NOT clobber with the original un-oriented job pageWidth/pageHeight.
-    const paper = resolvePaper(settings);
-    settings.pageWidth = paper.widthMm;
-    settings.pageHeight = paper.heightMm;
-    settings.orientation = paper.orientation;
-    settings.paperName = paper.paperName || settings.paperName;
+    const size = resolveSize(ui);
+    const settings = mergedSettings(ui);
+    settings.pageWidth = size.width;
+    settings.pageHeight = size.height;
+    settings.lockPageBox = true;
+    settings.orientation = size.width >= size.height ? 2 : 1;
+    settings.paperName =
+      ui.paperName === 'Custom' ? 'Custom' : settings.paperName || ui.paperName;
+    await persistUiPrefs();
     setStatus(
-      `正在打印（${paper.orientation === 2 ? '横向' : '纵向'} ${paper.widthMm}×${paper.heightMm}mm）…`
+      `正在打印（${settings.orientation === 2 ? '横向' : '纵向'} ${size.width}×${size.height}mm）…`
     );
     try {
       const res = await chrome.runtime.sendMessage({
@@ -341,6 +397,7 @@ function bindUi() {
   });
 
   els.btnClose?.addEventListener('click', async () => {
+    persistUiPrefs();
     try {
       await chrome.runtime.sendMessage({ type: 'CLOSE_PREVIEW', jobId });
     } catch (_) {
@@ -397,10 +454,16 @@ async function boot() {
     return;
   }
   job = res.job;
-  applySettingsToUi(job.settings || {});
   bindUi();
-  setZoomMode('100');
+  const saved = await loadPreviewPrefs();
+  applySettingsToUi(job.settings || {});
+  if (saved) {
+    applySettingsToUi(saved);
+    if (saved.zoomMode) zoomMode = saved.zoomMode;
+  }
+  setZoomMode(zoomMode);
   renderJob();
+  persistUiPrefs();
   focusPrint();
   if (window.ResizeObserver) {
     new ResizeObserver(() => fitSheets()).observe(els.stage);
@@ -409,8 +472,11 @@ async function boot() {
   }
   loadPrinters()
     .then(() => {
-      // Only restore printer selection — do not wipe user's orientation/paper changes
-      const wanted = (job.settings || {}).printer || (job.settings || {}).printerName;
+      const wanted =
+        saved?.printer ||
+        saved?.printerName ||
+        (job.settings || {}).printer ||
+        (job.settings || {}).printerName;
       if (wanted && els.printer) {
         if (![...els.printer.options].some((o) => o.value === wanted)) {
           const opt = document.createElement('option');
@@ -418,8 +484,11 @@ async function boot() {
           opt.textContent = wanted;
           els.printer.appendChild(opt);
         }
-        if (!els.printer.value) els.printer.value = wanted;
+        els.printer.value = wanted;
+      } else if (saved && Object.prototype.hasOwnProperty.call(saved, 'printer')) {
+        els.printer.value = saved.printer || '';
       }
+      persistUiPrefs();
       focusPrint();
     })
     .catch(() => {});

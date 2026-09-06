@@ -226,30 +226,7 @@ foreach ($p in $list) {
 
 function resolveWinPrinterTarget(printer) {
   const wanted = String(printer || '').trim();
-  if (!wanted) return null;
-  let printers = [];
-  try {
-    printers = listPrintersWin();
-  } catch (_) {
-    return wanted;
-  }
-  const exact = printers.find((p) => p.name === wanted);
-  if (exact) return exact.name;
-
-  // Allow selecting network printers by IP / port text, e.g. 192.168.1.69
-  const byPort = printers.find(
-    (p) => p.port && (p.port === wanted || p.port.indexOf(wanted) >= 0)
-  );
-  if (byPort) return byPort.name;
-
-  const byName = printers.find(
-    (p) =>
-      p.name.toLowerCase().indexOf(wanted.toLowerCase()) >= 0 ||
-      (p.description && p.description.toLowerCase().indexOf(wanted.toLowerCase()) >= 0)
-  );
-  if (byName) return byName.name;
-
-  return wanted;
+  return wanted || null;
 }
 
 function listPrintersLinux() {
@@ -282,9 +259,15 @@ function printPdfMac({ pdfPath, printer, copies, settings }) {
   if (copies > 1) args.push('-n', String(copies));
 
   // Paper / orientation hints when possible
-  const media = settings && settings.paperName;
-  if (media) args.push('-o', 'media=' + media);
-  if (Number(settings && settings.orientation) === 2) args.push('-o', 'landscape');
+  const paperName = settings && settings.paperName;
+  if (paperName) args.push('-o', 'media=' + paperName);
+  try {
+    const paper = require('./html-to-pdf').resolvePaper(settings || {});
+    const media = require('./html-to-pdf').printerMedia(paper);
+    if (media.landscape) args.push('-o', 'landscape');
+  } catch (_) {
+    if (Number(settings && settings.orientation) === 2) args.push('-o', 'landscape');
+  }
   if (settings && settings.duplex) args.push('-o', 'sides=two-sided-long-edge');
 
   args.push(pdfPath);
@@ -310,16 +293,16 @@ function spawnDetail(r) {
 function listWinPrintHelpers() {
   const binDir = winBinDir();
   const helpers = [];
+  for (const name of ['SumatraPDF.exe', 'SumatraPDF-32.exe']) {
+    const full = path.join(binDir, name);
+    if (fs.existsSync(full)) helpers.push({ kind: 'SumatraPDF', path: full });
+  }
   const pdfToPrinter = path.join(binDir, 'PDFtoPrinter.exe');
   const pdfium = path.join(binDir, 'pdfium.dll');
   // Current mendelson.org PDFtoPrinter.exe is a pdfium wrapper; without
   // pdfium.dll it crashes with 0xC0000135 and an empty error string.
   if (fs.existsSync(pdfToPrinter) && fs.existsSync(pdfium)) {
     helpers.push({ kind: 'PDFtoPrinter', path: pdfToPrinter });
-  }
-  for (const name of ['SumatraPDF.exe', 'SumatraPDF-32.exe']) {
-    const full = path.join(binDir, name);
-    if (fs.existsSync(full)) helpers.push({ kind: 'SumatraPDF', path: full });
   }
   return helpers;
 }
@@ -345,20 +328,40 @@ function printWithSumatra(helper, pdfPath, target, copies, settings) {
   const printSettings = [];
   if (copies > 1) printSettings.push(String(copies) + 'x');
   printSettings.push('noscale');
-  const orientation = Number(settings && settings.orientation) === 2 ? 2 : 1;
-  // Also honor landscape when page is wider than tall
-  let landscape = orientation === 2;
+
+  const paper = require('./html-to-pdf').resolvePaper(settings || {});
+  const pdfBox = require('./html-to-pdf').readPdfPageSize(pdfPath);
+  const isWide = require('./html-to-pdf').isWideBox;
+  const previewWide = isWide(paper.width, paper.height);
+  // EPSON / pin drivers treat default paper as portrait. A wide PDF sent with
+  // "portrait" is auto-rotated onto that paper → 预览横、纸上竖.
+  // Tell the printer landscape whenever the preview sheet is wider than tall.
+  const landscape = previewWide;
+  printSettings.push(landscape ? 'landscape' : 'portrait');
+
   try {
-    const paper = require('./html-to-pdf').resolvePaper(settings || {});
-    if (paper.width > paper.height) landscape = true;
-    if (paper.orientation === 2) landscape = true;
-    if (Number(settings && settings.orientation) === 1 && paper.width <= paper.height) {
-      landscape = false;
-    }
+    fs.appendFileSync(
+      path.join(require('os').tmpdir(), 'printkit-host.log'),
+      '[' +
+        new Date().toISOString() +
+        '] Sumatra preview=' +
+        paper.width +
+        'x' +
+        paper.height +
+        'mm pdf=' +
+        (pdfBox
+          ? pdfBox.widthMm.toFixed(1) + 'x' + pdfBox.heightMm.toFixed(1) + 'mm'
+          : '?') +
+        ' printer=' +
+        (landscape ? 'landscape' : 'portrait') +
+        ' settings=' +
+        printSettings.join(',') +
+        '\n'
+    );
   } catch (_) {
     /* ignore */
   }
-  printSettings.push(landscape ? 'landscape' : 'portrait');
+
   const args = ['-silent', '-exit-when-done'];
   if (target) args.push('-print-to', target);
   else args.push('-print-to-default');
@@ -371,14 +374,12 @@ function printWithSumatra(helper, pdfPath, target, copies, settings) {
     timeout: 120000,
   });
   if (r.status !== 0) {
-    // Fallback: allow shrink if noscale is rejected by some drivers
     const args2 = ['-silent', '-exit-when-done'];
     if (target) args2.push('-print-to', target);
     else args2.push('-print-to-default');
     const settings2 = [];
     if (copies > 1) settings2.push(String(copies) + 'x');
-    settings2.push('shrink');
-    settings2.push(landscape ? 'landscape' : 'portrait');
+    settings2.push('shrink', landscape ? 'landscape' : 'portrait');
     args2.push('-print-settings', settings2.join(','));
     args2.push(pdfPath);
     const r2 = spawnSync(helper, args2, {
@@ -552,7 +553,9 @@ function seedChromePrintProfile(profileDir, opts) {
     marginsType: 1, // NO_MARGINS
     scalingType: 3, // CUSTOM → use scaling %
     scaling: '100',
-    isLandscapeEnabled: !!(opts.landscape || widthMm > heightMm),
+    // Do NOT infer landscape from width>height. Custom tickets are already
+    // a wide mm box; landscape=true would rotate them to portrait on pin printers.
+    isLandscapeEnabled: !!opts.landscape,
     mediaSize: {
       height_microns: hMicrons,
       width_microns: wMicrons,
@@ -602,6 +605,7 @@ function materializeOrientedHtml(htmlPath, settings) {
     'job-orient-' + (paper.orientation === 2 ? 'land' : 'port') + '.html'
   );
   let html = fs.readFileSync(abs, 'utf8');
+  const media = require('./html-to-pdf').printerMedia(paper);
   const css =
     '<style id="printkit-orientation-fix">' +
     '@page{size:' +
@@ -639,7 +643,12 @@ function materializeOrientedHtml(htmlPath, settings) {
     html = css + html;
   }
   fs.writeFileSync(outPath, html, 'utf8');
-  return { htmlPath: outPath, paper: paper, landscape: paper.orientation === 2 || paper.width > paper.height };
+  return {
+    htmlPath: outPath,
+    paper: paper,
+    landscape: media.landscape,
+    media: media,
+  };
 }
 
 /**
@@ -659,6 +668,8 @@ function printWithIeCom(htmlPath, target, copies, settings) {
   const abs = path.resolve(oriented.htmlPath).replace(/'/g, "''");
   const n = Math.max(1, copies || 1);
   const land = oriented.landscape ? '$true' : '$false';
+  const paperW = Number(oriented.paper && oriented.paper.width) || 210;
+  const paperH = Number(oriented.paper && oriented.paper.height) || 297;
   // PowerShell 2.0 compatible (Win7).
   // Disable ClearType/font smoothing so GDI glyphs stay solid on pin printers,
   // then restore. Zero IE page margins for continuous forms.
@@ -684,7 +695,15 @@ function printWithIeCom(htmlPath, target, copies, settings) {
     "if(-not [string]::IsNullOrEmpty($PrinterName))$pd.PrinterSettings.PrinterName=$PrinterName;" +
     "$pd.DefaultPageSettings.Landscape=" +
     land +
-    ";}catch{};" +
+    ';' +
+    'try{$w=[int][math]::Round(' +
+    String(paperW) +
+    '/25.4*100);$h=[int][math]::Round(' +
+    String(paperH) +
+    '/25.4*100);' +
+    '$sz=New-Object System.Drawing.Printing.PaperSize("PrintKit",$w,$h);$sz.RawKind=256;' +
+    '$pd.DefaultPageSettings.PaperSize=$sz;}catch{};' +
+    '}catch{};' +
     "$html='" +
     abs +
     "';" +
@@ -765,12 +784,13 @@ function printWithChromeKiosk(filePath, target, copies, settings) {
   }
 
   const paper = require('./html-to-pdf').resolvePaper(settings || {});
+  const media = require('./html-to-pdf').printerMedia(paper);
   seedChromePrintProfile(profileDir, {
     printer: target || prevDefault || '',
-    paper: paper,
-    pageWidth: paper.width,
-    pageHeight: paper.height,
-    landscape: paper.orientation === 2 || paper.width > paper.height,
+    paper: { width: media.widthMm, height: media.heightMm },
+    pageWidth: media.widthMm,
+    pageHeight: media.heightMm,
+    landscape: media.landscape,
   });
 
   const printFile = prepareKioskPrintFile(filePath);
@@ -806,7 +826,8 @@ function printWithChromeKiosk(filePath, target, copies, settings) {
     }
     return {
       printer: target || prevDefault || 'default',
-      method: 'Chrome-kiosk-100pct',
+      method:
+        'Chrome-kiosk-100pct-' + (media.landscape ? 'landscape' : 'portrait'),
     };
   } finally {
     if (changed && prevDefault) {
@@ -820,62 +841,43 @@ function printWithChromeKiosk(filePath, target, copies, settings) {
 }
 
 function printPdfWin({ pdfPath, printer, copies, settings }) {
-  let target = resolveWinPrinterTarget(printer);
-  if (!target) {
-    target = getDefaultPrinterNameWin();
-  }
-
+  // Use the name from the preview dropdown as-is. Do not WMI-enumerate
+  // printers here — that alone costs several seconds per job.
+  const target = resolveWinPrinterTarget(printer);
   const errors = [];
-  const htmlPath =
-    (settings && settings.htmlPath) ||
-    (pdfPath ? pdfPath.replace(/\.pdf$/i, '.html') : null);
 
-  // 1) IE COM GDI of HTML — sharp solid glyphs on pin printers (pass orientation!)
-  if (htmlPath && fs.existsSync(htmlPath)) {
-    try {
-      return printWithIeCom(htmlPath, target, copies, settings);
-    } catch (err) {
-      errors.push(err.message || String(err));
-    }
-  }
-
-  // 2) Chrome kiosk HTML at forced 100% scale + landscape flag
-  if (htmlPath && fs.existsSync(htmlPath)) {
-    try {
-      return printWithChromeKiosk(htmlPath, target, copies, settings);
-    } catch (err) {
-      errors.push(err.message || String(err));
-    }
-  }
-
-  // 3) Chrome kiosk PDF
   try {
-    return printWithChromeKiosk(pdfPath, target, copies, settings);
-  } catch (err) {
-    errors.push(err.message || String(err));
+    fs.appendFileSync(
+      path.join(require('os').tmpdir(), 'printkit-host.log'),
+      '[' +
+        new Date().toISOString() +
+        '] printPdfWin silent printer=' +
+        String(target || '(default)') +
+        '\n'
+    );
+  } catch (_) {
+    /* ignore */
   }
 
-  // 4) Legacy helpers (Sumatra last — bitmap path looks dotted on pin printers)
+  // Silent helpers only. Chrome kiosk / IE / PrintTo verb open extra windows
+  // and the system print dialog — preview already is the only UI we want.
   for (const helper of listWinPrintHelpers()) {
     try {
-      if (helper.kind === 'PDFtoPrinter') {
-        return printWithPdfToPrinter(helper.path, pdfPath, target, copies);
-      }
       if (helper.kind === 'SumatraPDF') {
         return printWithSumatra(helper.path, pdfPath, target, copies, settings);
       }
+      if (helper.kind === 'PDFtoPrinter') {
+        return printWithPdfToPrinter(helper.path, pdfPath, target, copies);
+      }
     } catch (err) {
       errors.push(err.message || String(err));
     }
   }
 
-  try {
-    return printWithShellVerb(pdfPath, target, copies);
-  } catch (err) {
-    errors.push(err.message || String(err));
-  }
-
-  throw new Error(errors.filter(Boolean).join(' | ') || 'Windows 打印失败');
+  throw new Error(
+    errors.filter(Boolean).join(' | ') ||
+      '未找到静默打印组件（SumatraPDF）。请重新安装 PrintKit。'
+  );
 }
 
 module.exports = {
