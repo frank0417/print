@@ -80,6 +80,19 @@
       }
       #installHint.show { display: block; }
       #installHint a { color: inherit; font-weight: 600; }
+      #updateBox {
+        display: none;
+        margin-top: 8px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: #eef4ff;
+        color: #1f4fd6;
+        font-size: 12px;
+      }
+      #updateBox.show { display: block; }
+      #updateBox.warn { background: #fff6e8; color: #9a5b00; }
+      #updateBox.ok { background: #e7f7ee; color: #1f7a4c; }
+      #updateBox.bad { background: #fdecec; color: #a33b3b; }
     </style>
   </head>
   <body>
@@ -93,24 +106,28 @@
       </div>
       <div id="detail"></div>
       <div id="installHint">
-        请下载最新版 v0.5.12（内含 Node + 代理 + 扩展）：<br />
+        请下载最新安装包（内含 Node + 代理 + 扩展）：<br />
         <a
-          href="https://github.com/frank0417/print/releases/download/v0.5.12/PrintKit-Setup-windows.zip"
+          href="https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-windows.zip"
           target="_blank"
           rel="noopener"
           >Windows ZIP</a
         >
         ·
         <a
-          href="https://github.com/frank0417/print/releases/download/v0.5.12/PrintKit-Setup-windows.exe"
+          href="https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-windows.exe"
           target="_blank"
           rel="noopener"
           >Windows .exe</a
         >
       </div>
+      <div id="updateBox"></div>
       <div class="btns">
         <button type="button" id="refresh">重新检测</button>
-        <button type="button" id="openGuide" class="primary">安装说明</button>
+        <button type="button" id="checkUpdate">检查更新</button>
+        <button type="button" id="applyUpdate" class="primary">立即升级</button>
+        <button type="button" id="openGuide">安装说明</button>
+        <button type="button" id="uninstall">卸载</button>
         <a
           class="link-btn"
           href="https://github.com/frank0417/print/releases/latest"

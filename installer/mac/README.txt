@@ -31,3 +31,10 @@ https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-macos
 卸载
 ----
 双击 Uninstall-PrintKit.command
+（或安装目录内 ~/Library/Application Support/PrintKit/Uninstall-PrintKit.command）
+
+升级
+----
+双击 Update-PrintKit.command
+远程 / 内网包：
+  PRINTKIT_NO_PAUSE=1 ~/Library/Application\ Support/PrintKit/Update-PrintKit.command --zip /path/PrintKit-Setup-macos.zip

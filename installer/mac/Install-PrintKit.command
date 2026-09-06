@@ -94,6 +94,13 @@ install_manifest "$HOME/Library/Application Support/Microsoft Edge/NativeMessagi
 
 echo "$EXT_DIR" > "$INSTALL_ROOT/EXTENSION_PATH.txt"
 
+for helper in Update-PrintKit.command Uninstall-PrintKit.command Open-Extensions.command; do
+  if [[ -f "$SETUP_ROOT/$helper" ]]; then
+    cp -f "$SETUP_ROOT/$helper" "$INSTALL_ROOT/$helper"
+    chmod +x "$INSTALL_ROOT/$helper" || true
+  fi
+done
+
 # Copy path to clipboard when possible
 if command -v pbcopy >/dev/null 2>&1; then
   printf '%s' "$EXT_DIR" | pbcopy

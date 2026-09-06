@@ -1,6 +1,6 @@
 # PrintKit · Chrome 打印扩展（对齐 jatoolsPrinter）
 
-当前最新版：**v0.5.12**（横向可调 + 针式实心字）
+当前最新版：**v0.5.17**（可远程/一键升级）
 
 用 Chrome 扩展实现网页精确打印，API 对齐经典 **jatoolsPrinter / JCP**。  
 Windows 一键安装包内置 Node 运行时 + 打印代理 + 扩展（另含 PDFtoPrinter），兼容 **Windows 7**。
@@ -11,9 +11,9 @@ Windows 一键安装包内置 Node 运行时 + 打印代理 + 扩展（另含 PD
 
 | 文件 | 地址 |
 | --- | --- |
-| **推荐 ZIP** | https://github.com/frank0417/print/releases/download/v0.5.12/PrintKit-Setup-windows.zip |
-| EXE 一键安装 | https://github.com/frank0417/print/releases/download/v0.5.12/PrintKit-Setup-windows.exe |
-| 全部版本 | https://github.com/frank0417/print/releases/tag/v0.5.12 |
+| **推荐 ZIP** | https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-windows.zip |
+| EXE 一键安装 | https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-windows.exe |
+| 全部版本 | https://github.com/frank0417/print/releases/latest |
 
 1. 把 ZIP 复制到 `C:\PrintKit-Setup`，解压（不要在微信下载目录里直接运行）
 2. 双击 `Install-PrintKit.bat`，等到出现 `Install finished`
@@ -24,6 +24,32 @@ Windows 一键安装包内置 Node 运行时 + 打印代理 + 扩展（另含 PD
 扩展 ID 必须是：`memmopnlapcegennpipheiadaonehljd`
 
 安装失败时运行同目录的 `Diagnose-PrintKit.bat`，把报告发回来。
+
+## 升级
+
+扩展加载的是固定目录，**升级不用重新「加载已解压扩展」**（目录不变；弹窗里点「立即升级」会自动重载）。
+
+| 方式 | 怎么做 |
+| --- | --- |
+| **扩展里一键升级** | 点 PrintKit 图标 →「检查更新」→「立即升级」（从 GitHub Releases 拉取） |
+| 本机脚本 | Windows 开始菜单 **PrintKit → Update PrintKit**，或运行 `%LOCALAPPDATA%\PrintKit\Update-PrintKit.bat` |
+| **远程 / 内网包** | 把新包放到共享盘后，在目标电脑执行：<br>`%LOCALAPPDATA%\PrintKit\Update-PrintKit.bat /S --zip \\服务器\共享\PrintKit-Setup-windows.zip` |
+| 重跑安装包 | 下载最新 `PrintKit-Setup-windows.exe`，双击或 `PrintKit-Setup-windows.exe /S`（静默覆盖） |
+
+macOS：`~/Library/Application Support/PrintKit/Update-PrintKit.command`  
+也可用 `--url https://内网/PrintKit-Setup-windows.zip`，或环境变量 `PRINTKIT_UPDATE_ZIP` / `PRINTKIT_UPDATE_URL`。
+
+升级后若扩展未自动重载：打开 `chrome://extensions`，点 PrintKit 上的刷新。
+
+## 卸载
+
+| 系统 | 怎么做 |
+| --- | --- |
+| Windows | 设置 → 应用 → **PrintKit**，或开始菜单 **PrintKit → Uninstall PrintKit**，或 `%LOCALAPPDATA%\PrintKit\Uninstall-PrintKit.bat` |
+| macOS | `~/Library/Application Support/PrintKit/Uninstall-PrintKit.command` |
+| 扩展 | 卸载脚本只删本地代理；再到 `chrome://extensions` **移除 PrintKit 扩展** |
+
+远程静默卸载（Windows）：`Uninstall-PrintKit.bat /S`
 
 ## 下载最新源码
 

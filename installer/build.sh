@@ -16,7 +16,7 @@ NODE_VERSION="${PRINTKIT_NODE_VERSION:-22.14.0}"
 WIN_NODE_VERSION="${PRINTKIT_WIN_NODE_VERSION:-12.22.12}"
 STAGE="$DIST/.stage"
 ARTIFACTS="${PRINTKIT_ARTIFACTS:-/opt/cursor/artifacts}"
-VERSION="0.5.12"
+VERSION="0.5.17"
 
 mkdir -p "$DIST" "$CACHE" "$STAGE" "$ARTIFACTS"
 
@@ -104,9 +104,14 @@ build_windows_payload() {
   cp "$INSTALLER/win/Install-PrintKit-Cmd.bat" "$stage/"
   cp "$INSTALLER/win/Install-PrintKit.ps1" "$stage/"
   cp "$INSTALLER/win/Uninstall-PrintKit.ps1" "$stage/"
+  cp "$INSTALLER/win/Uninstall-PrintKit.bat" "$stage/"
+  cp "$INSTALLER/win/Update-PrintKit.bat" "$stage/"
   cp "$INSTALLER/win/Open-Extensions.bat" "$stage/"
   cp "$INSTALLER/win/Diagnose-PrintKit.bat" "$stage/"
   cp "$INSTALLER/win/README.txt" "$stage/"
+  cp "$INSTALLER/win/Update-PrintKit.bat" "$stage/app/"
+  cp "$INSTALLER/win/Uninstall-PrintKit.bat" "$stage/app/"
+  cp "$INSTALLER/win/Uninstall-PrintKit.ps1" "$stage/app/"
 }
 
 build_windows() {
@@ -159,10 +164,13 @@ build_macos_payload() {
 
   cp "$INSTALLER/mac/Install-PrintKit.command" "$stage/"
   cp "$INSTALLER/mac/Uninstall-PrintKit.command" "$stage/"
+  cp "$INSTALLER/mac/Update-PrintKit.command" "$stage/"
   cp "$INSTALLER/mac/Open-Extensions.command" "$stage/"
   cp "$INSTALLER/mac/oneclick-entry.sh" "$stage/"
   cp "$INSTALLER/mac/README.txt" "$stage/"
-  chmod +x "$stage/"*.command "$stage/oneclick-entry.sh"
+  cp "$INSTALLER/mac/Update-PrintKit.command" "$stage/app/"
+  cp "$INSTALLER/mac/Uninstall-PrintKit.command" "$stage/app/"
+  chmod +x "$stage/"*.command "$stage/oneclick-entry.sh" "$stage/app/"*.command
 }
 
 build_macos() {
@@ -237,6 +245,24 @@ write_manifest() {
 - macOS: \`~/Library/Application Support/PrintKit/extension\`
 
 扩展 ID 须为：\`memmopnlapcegennpipheiadaonehljd\`
+
+## 升级
+
+已安装用户无需重新「加载已解压扩展」（目录不变）。任选其一：
+
+- 扩展图标 → **检查更新 / 立即升级**（从 GitHub 拉取）
+- Windows：开始菜单 **PrintKit → Update PrintKit**，或
+  \`%LOCALAPPDATA%\\PrintKit\\Update-PrintKit.bat\`
+- macOS：\`~/Library/Application Support/PrintKit/Update-PrintKit.command\`
+- 远程/内网包：
+  \`Update-PrintKit.bat /S --zip \\\\server\\share\\PrintKit-Setup-windows.zip\`
+- 重跑最新安装包（覆盖安装）：\`PrintKit-Setup-windows.exe /S\`
+
+## 卸载
+
+- Windows：设置 → 应用 → PrintKit，或开始菜单 **Uninstall PrintKit**
+- macOS：\`~/Library/Application Support/PrintKit/Uninstall-PrintKit.command\`
+- 然后在 \`chrome://extensions\` 移除扩展
 
 本地构建：
 

@@ -85,9 +85,29 @@ node host.js --cli getPrinters
 | `getHostInfo` | 版本 / 平台 |
 | `getPrinters` | 打印机列表 |
 | `getDefaultPrinter` | 默认打印机 |
-| `print` | 静默打印（HTML pages → PDF → 打印机） |
+| `checkUpdate` | 查询 GitHub 是否有新版本 |
+| `uninstall` | 启动卸载（删除安装目录与 Native Messaging 注册） |
+
+## 升级
+
+已安装一体化包后，可用 Host 从 GitHub 或内网 zip 覆盖升级：
+
+```bash
+# 查看是否有新版本
+node host.js --cli checkUpdate
+
+# 从 GitHub Releases 升级
+node host.js --cli applyUpdate
+
+# 内网 / 共享盘（远程批量升级）
+node host.js --cli applyUpdate --zip "\\\\server\\share\\PrintKit-Setup-windows.zip"
+node host.js --cli applyUpdate --url https://files.example.com/PrintKit-Setup-windows.zip
+```
+
+Windows 安装目录：`%LOCALAPPDATA%\PrintKit\Update-PrintKit.bat`  
+macOS：`~/Library/Application Support/PrintKit/Update-PrintKit.command`
 
 ## 卸载
 
-- macOS: `./scripts/uninstall-mac.sh`
-- Windows: `powershell -File .\scripts\uninstall-win.ps1`
+- macOS: `./scripts/uninstall-mac.sh`（开发者安装）或安装目录内 `Uninstall-PrintKit.command`
+- Windows: `powershell -File .\scripts\uninstall-win.ps1`（开发者安装）或 `%LOCALAPPDATA%\PrintKit\Uninstall-PrintKit.bat`

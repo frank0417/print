@@ -7,6 +7,7 @@
  *
  * Supported actions:
  *   ping | getPrinters | getDefaultPrinter | print | getHostInfo
+ *   checkUpdate | applyUpdate | uninstall
  */
 
 const fs = require('fs');
@@ -14,6 +15,15 @@ const os = require('os');
 const path = require('path');
 const { listPrinters, getDefaultPrinter, printPdf } = require('./lib/printers');
 const { htmlJobToPdf } = require('./lib/html-to-pdf');
+const update = require('./lib/update');
+
+const HOST_VERSION = (() => {
+  try {
+    return require('./package.json').version;
+  } catch (_) {
+    return '0.3.0';
+  }
+})();
 
 const MAX_MESSAGE = 1024 * 1024 * 64; // 64MB
 
@@ -106,21 +116,47 @@ async function handle(msg) {
       return {
         ok: true,
         pong: true,
-        version: '0.2.9',
+        version: HOST_VERSION,
+        productVersion: update.readLocalVersion(),
         platform: process.platform,
         arch: process.arch,
         node: process.version,
+        installRoot: update.findInstallRoot(),
       };
 
     case 'getHostInfo':
       return {
         ok: true,
-        version: '0.2.9',
+        version: HOST_VERSION,
+        productVersion: update.readLocalVersion(),
         platform: process.platform,
         arch: process.arch,
         node: process.version,
         tmpdir: os.tmpdir(),
+        installRoot: update.findInstallRoot(),
       };
+
+    case 'checkUpdate':
+      try {
+        return await update.checkUpdate();
+      } catch (err) {
+        return {
+          ok: false,
+          error: err.message || String(err),
+          current: update.readLocalVersion(),
+          installRoot: update.findInstallRoot(),
+        };
+      }
+
+    case 'applyUpdate':
+      try {
+        return await update.applyUpdate(msg.payload || {});
+      } catch (err) {
+        return { ok: false, error: err.message || String(err) };
+      }
+
+    case 'uninstall':
+      return update.uninstallPrintKit(msg.payload || {});
 
     case 'getPrinters':
     case 'listPrinters':
@@ -202,15 +238,31 @@ async function doPrint(payload) {
   }
 }
 
+function parseCliPayload(argv) {
+  const payload = {};
+  const payloadIdx = argv.indexOf('--payload');
+  if (payloadIdx >= 0) {
+    const src = argv[payloadIdx + 1] || '';
+    if (src.charAt(0) === '{') {
+      Object.assign(payload, JSON.parse(src));
+    } else {
+      Object.assign(payload, JSON.parse(fs.readFileSync(src, 'utf8')));
+    }
+  }
+  const zipIdx = argv.indexOf('--zip');
+  if (zipIdx >= 0) payload.zipPath = argv[zipIdx + 1];
+  const urlIdx = argv.indexOf('--url');
+  if (urlIdx >= 0) payload.url = argv[urlIdx + 1];
+  if (argv.indexOf('--force') >= 0) payload.force = true;
+  if (argv.indexOf('--yes') >= 0) payload.yes = true;
+  return payload;
+}
+
 async function main() {
-  // CLI mode for manual testing: node host.js --cli getPrinters
+  // CLI mode: node host.js --cli ping|getPrinters|checkUpdate|applyUpdate|uninstall
   if (process.argv.includes('--cli')) {
     const action = process.argv[process.argv.indexOf('--cli') + 1] || 'ping';
-    let payload = {};
-    const payloadIdx = process.argv.indexOf('--payload');
-    if (payloadIdx >= 0) {
-      payload = JSON.parse(fs.readFileSync(process.argv[payloadIdx + 1], 'utf8'));
-    }
+    const payload = parseCliPayload(process.argv);
     const result = await handle({ action, payload });
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     if (!result.ok) process.exit(1);

@@ -65,6 +65,12 @@ async function handleMessage(message, sender) {
     case 'PREWARM_HOST':
       nativeRequest('prewarm', {}, 30000).catch(() => {});
       return { ok: true };
+    case 'CHECK_UPDATE':
+      return nativeSend('checkUpdate', {}, 25000);
+    case 'APPLY_UPDATE':
+      return nativeSend('applyUpdate', message.payload || {}, 300000);
+    case 'UNINSTALL_PRINTKIT':
+      return nativeSend('uninstall', {}, 15000);
     default:
       throw new Error(`未知消息: ${message?.type}`);
   }

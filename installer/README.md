@@ -34,6 +34,24 @@
 
 扩展 ID 须为：`memmopnlapcegennpipheiadaonehljd`
 
+## 升级与卸载
+
+安装后目录固定，升级是覆盖文件，不必重新加载解压扩展（弹窗「立即升级」会自动重载）。
+
+**升级**
+
+- 扩展图标 → 检查更新 / 立即升级
+- Windows：`%LOCALAPPDATA%\PrintKit\Update-PrintKit.bat`（开始菜单亦有）
+- macOS：`~/Library/Application Support/PrintKit/Update-PrintKit.command`
+- 远程内网包：`Update-PrintKit.bat /S --zip \\server\share\PrintKit-Setup-windows.zip`
+- 重跑最新安装包：`PrintKit-Setup-windows.exe /S`
+
+**卸载**
+
+- Windows：设置 → 应用 → PrintKit，或开始菜单 Uninstall PrintKit
+- macOS：双击 `Uninstall-PrintKit.command`（安装目录内）
+- 然后在 `chrome://extensions` 移除扩展
+
 ## 发布下载地址
 
 - https://github.com/frank0417/print/releases/latest/download/PrintKit-Setup-windows.exe

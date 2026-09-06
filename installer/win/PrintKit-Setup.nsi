@@ -10,7 +10,7 @@ ShowInstDetails show
 !include "FileFunc.nsh"
 
 !define PRODUCT_NAME "PrintKit"
-!define PRODUCT_VERSION "0.5.12"
+!define PRODUCT_VERSION "0.5.17"
 !define SETUP_STAGE "@@SETUP_STAGE@@"
 !define OUT_FILE "@@OUT_FILE@@"
 
@@ -36,6 +36,9 @@ Section "Install"
   File "${SETUP_STAGE}/Install-PrintKit-Cmd.bat"
   File "${SETUP_STAGE}/Open-Extensions.bat"
   File "${SETUP_STAGE}/Diagnose-PrintKit.bat"
+  File "${SETUP_STAGE}/Update-PrintKit.bat"
+  File "${SETUP_STAGE}/Uninstall-PrintKit.bat"
+  File "${SETUP_STAGE}/Uninstall-PrintKit.ps1"
   File /r "${SETUP_STAGE}/app"
 
   ; Stage to a stable short path (avoids WeChat / temp path quirks)
@@ -61,11 +64,15 @@ Section "Install"
 check_fail:
   ${If} $PrintKitExit != 0
     StrCpy $PrintKitLogTail "See %TEMP%\PrintKit-install.log"
+    IfSilent silent_fail
     MessageBox MB_ICONSTOP|MB_OK "PrintKit install failed (exit $PrintKitExit).$\r$\n$\r$\n1) Download ZIP from GitHub (not WeChat)$\r$\n2) Copy to C:\PrintKit-Setup$\r$\n3) Run Install-PrintKit.bat$\r$\n$\r$\nLog: %TEMP%\PrintKit-install.log"
+    silent_fail:
     SetErrorLevel 1
     Abort
   ${EndIf}
 
 install_ok:
-  MessageBox MB_ICONINFORMATION|MB_OK "PrintKit installed.$\r$\n$\r$\n1) chrome://extensions$\r$\n2) Enable Developer mode$\r$\n3) Load unpacked -> %LOCALAPPDATA%\PrintKit\extension$\r$\n$\r$\nExpected ID: memmopnlapcegennpipheiadaonehljd"
+  IfSilent skip_ok_msg
+  MessageBox MB_ICONINFORMATION|MB_OK "PrintKit installed.$\r$\n$\r$\n1) chrome://extensions$\r$\n2) Enable Developer mode$\r$\n3) Load unpacked -> %LOCALAPPDATA%\PrintKit\extension$\r$\n$\r$\nExpected ID: memmopnlapcegennpipheiadaonehljd$\r$\n$\r$\nLater: Start Menu -> PrintKit -> Update PrintKit"
+  skip_ok_msg:
 SectionEnd

@@ -19,4 +19,16 @@ MUST DO
 
 If still failing, run Diagnose-PrintKit.bat and send the report.
 
+Upgrade later
+-------------
+Start Menu -> PrintKit -> Update PrintKit
+or: %LOCALAPPDATA%\PrintKit\Update-PrintKit.bat
+Remote: Update-PrintKit.bat /S --zip \\server\share\PrintKit-Setup-windows.zip
+Silent reinstall: PrintKit-Setup-windows.exe /S
+
+Uninstall
+---------
+Settings -> Apps -> PrintKit
+or: Start Menu -> PrintKit -> Uninstall PrintKit
+
 This build uses Node 12 + pure CMD installer for Windows 7.

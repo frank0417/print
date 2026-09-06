@@ -6,6 +6,7 @@ $InstallRoot = Join-Path $env:LOCALAPPDATA 'PrintKit'
 Remove-Item "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$NativeHostName" -Recurse -Force
 Remove-Item "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\$NativeHostName" -Recurse -Force
 Remove-Item "HKCU:\Software\Chromium\NativeMessagingHosts\$NativeHostName" -Recurse -Force
+Remove-Item "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintKit" -Recurse -Force
 
 $Programs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\PrintKit'
 if (Test-Path $Programs) {

@@ -181,11 +181,38 @@ try {
     $utf8
   )
 
-  # Keep diagnose tool next to install
-  $diagSrc = Join-Path $SetupRoot 'Diagnose-PrintKit.bat'
-  if (Test-Path $diagSrc) {
-    Copy-Item -Path $diagSrc -Destination (Join-Path $InstallRoot 'Diagnose-PrintKit.bat') -Force
+  # Keep helper tools next to install
+  $helperNames = @(
+    'Diagnose-PrintKit.bat',
+    'Open-Extensions.bat',
+    'Update-PrintKit.bat',
+    'Uninstall-PrintKit.bat',
+    'Uninstall-PrintKit.ps1'
+  )
+  foreach ($helperName in $helperNames) {
+    $helperSrc = Join-Path $SetupRoot $helperName
+    if (Test-Path $helperSrc) {
+      Copy-Item -Path $helperSrc -Destination (Join-Path $InstallRoot $helperName) -Force
+    }
   }
+
+  $pkVer = '0.5.17'
+  $verFile = Join-Path $InstallRoot 'VERSION.txt'
+  if (Test-Path $verFile) {
+    $verLine = Get-Content -Path $verFile | Where-Object { $_ -like 'version=*' } | Select-Object -First 1
+    if ($verLine) { $pkVer = [string]$verLine.Substring(8) }
+  }
+  $uninstKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintKit'
+  if (-not (Test-Path $uninstKey)) {
+    New-Item -Path $uninstKey -Force | Out-Null
+  }
+  New-ItemProperty -Path $uninstKey -Name 'DisplayName' -Value 'PrintKit' -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $uninstKey -Name 'DisplayVersion' -Value $pkVer -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $uninstKey -Name 'Publisher' -Value 'PrintKit' -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $uninstKey -Name 'InstallLocation' -Value $InstallRoot -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $uninstKey -Name 'UninstallString' -Value ('"' + (Join-Path $InstallRoot 'Uninstall-PrintKit.bat') + '" /S') -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $uninstKey -Name 'NoModify' -Value 1 -PropertyType DWord -Force | Out-Null
+  New-ItemProperty -Path $uninstKey -Name 'NoRepair' -Value 1 -PropertyType DWord -Force | Out-Null
 
   try {
     $WshShell = New-Object -ComObject WScript.Shell
@@ -204,6 +231,21 @@ try {
     $sc1.Save()
 
     New-FolderShortcut -WshShell $WshShell -LinkPath (Join-Path $Programs 'PrintKit Extension Folder.lnk') -FolderPath $ExtDir
+
+    $updateBat = Join-Path $InstallRoot 'Update-PrintKit.bat'
+    if (Test-Path $updateBat) {
+      $scUp = $WshShell.CreateShortcut((Join-Path $Programs 'Update PrintKit.lnk'))
+      $scUp.TargetPath = $updateBat
+      $scUp.WorkingDirectory = $InstallRoot
+      $scUp.Save()
+    }
+    $uninstBat = Join-Path $InstallRoot 'Uninstall-PrintKit.bat'
+    if (Test-Path $uninstBat) {
+      $scUn = $WshShell.CreateShortcut((Join-Path $Programs 'Uninstall PrintKit.lnk'))
+      $scUn.TargetPath = $uninstBat
+      $scUn.WorkingDirectory = $InstallRoot
+      $scUn.Save()
+    }
 
     $desk = [Environment]::GetFolderPath('Desktop')
     if ($desk) {

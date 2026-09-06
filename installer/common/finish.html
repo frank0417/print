@@ -67,7 +67,7 @@
         backdrop-filter: blur(6px);
       }
       h2 { margin: 0 0 10px; font-size: 16px; }
-      ol { margin: 0; padding-left: 20px; }
+      ol, ul { margin: 0; padding-left: 20px; }
       li { margin: 8px 0; }
       code, .path {
         font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -150,6 +150,19 @@
           Windows 默认：<code>%LOCALAPPDATA%\PrintKit\extension</code><br />
           macOS 默认：<code>~/Library/Application Support/PrintKit/extension</code>
         </p>
+      </section>
+
+      <section>
+        <h2>以后怎么升级 / 卸载</h2>
+        <p class="note" style="margin-top:0">
+          扩展目录不变，升级后在 <code>chrome://extensions</code> 点一下 PrintKit 的刷新即可（扩展弹窗里点「立即升级」会自动重载）。
+        </p>
+        <ul>
+          <li>扩展图标 → <strong>检查更新 / 立即升级</strong></li>
+          <li>Windows 开始菜单 → PrintKit → Update PrintKit / Uninstall PrintKit</li>
+          <li>或运行 <code>%LOCALAPPDATA%\PrintKit\Update-PrintKit.bat</code></li>
+          <li>远程：<code>Update-PrintKit.bat /S --zip \\服务器\共享\PrintKit-Setup-windows.zip</code></li>
+        </ul>
       </section>
 
       <section>

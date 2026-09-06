@@ -110,6 +110,27 @@ reg add "HKCU\Software\Chromium\NativeMessagingHosts\%HOST_NAME%" /ve /t REG_SZ 
 echo %EXTDIR%> "%INSTALL%\EXTENSION_PATH.txt"
 copy /Y "%~dp0Diagnose-PrintKit.bat" "%INSTALL%\Diagnose-PrintKit.bat" >nul 2>nul
 copy /Y "%~dp0Open-Extensions.bat" "%INSTALL%\Open-Extensions.bat" >nul 2>nul
+copy /Y "%~dp0Update-PrintKit.bat" "%INSTALL%\Update-PrintKit.bat" >nul 2>nul
+copy /Y "%~dp0Uninstall-PrintKit.bat" "%INSTALL%\Uninstall-PrintKit.bat" >nul 2>nul
+copy /Y "%~dp0Uninstall-PrintKit.ps1" "%INSTALL%\Uninstall-PrintKit.ps1" >nul 2>nul
+
+set "PKVER=0.5.17"
+if exist "%INSTALL%\VERSION.txt" (
+  for /f "tokens=2 delims==" %%A in ('findstr /b "version=" "%INSTALL%\VERSION.txt"') do set "PKVER=%%A"
+)
+set "SM=%APPDATA%\Microsoft\Windows\Start Menu\Programs\PrintKit"
+mkdir "%SM%" 2>nul
+copy /Y "%INSTALL%\Open-Extensions.bat" "%SM%\Open Chrome Extensions.bat" >nul 2>nul
+copy /Y "%INSTALL%\Update-PrintKit.bat" "%SM%\Update PrintKit.bat" >nul 2>nul
+copy /Y "%INSTALL%\Uninstall-PrintKit.bat" "%SM%\Uninstall PrintKit.bat" >nul 2>nul
+
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintKit" /v DisplayName /t REG_SZ /d "PrintKit" /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintKit" /v DisplayVersion /t REG_SZ /d "%PKVER%" /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintKit" /v Publisher /t REG_SZ /d "PrintKit" /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintKit" /v InstallLocation /t REG_SZ /d "%INSTALL%" /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintKit" /v UninstallString /t REG_SZ /d "\"%INSTALL%\Uninstall-PrintKit.bat\" /S" /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintKit" /v NoModify /t REG_DWORD /d 1 /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintKit" /v NoRepair /t REG_DWORD /d 1 /f >nul
 
 echo [5/5] Self-check...
 "%NODE%" -v
