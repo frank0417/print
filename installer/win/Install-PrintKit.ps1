@@ -140,6 +140,10 @@ try {
   if (Test-Path $PdfHelper) {
     Copy-Item -Path $PdfHelper -Destination (Join-Path $hostBin 'PDFtoPrinter.exe') -Force
   }
+  $Pdfium = Join-Path $InstallRoot 'bin\pdfium.dll'
+  if (Test-Path $Pdfium) {
+    Copy-Item -Path $Pdfium -Destination (Join-Path $hostBin 'pdfium.dll') -Force
+  }
 
   $launcherContent = "@echo off`r`n`"$NodeExe`" `"$HostJs`" %*`r`n"
   [System.IO.File]::WriteAllText($Launcher, $launcherContent, [System.Text.Encoding]::ASCII)

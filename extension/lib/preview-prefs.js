@@ -19,37 +19,56 @@ export async function savePreviewPrefs(prefs) {
   }
 }
 
-/**
- * Last toolbar config overlays the page job. Named paper (A4/B5/…)
- * drops inferred pageWidth/pageHeight so the preset actually applies.
- */
-export function mergeWithSavedPrefs(jobSettings, saved) {
-  const out = { ...(jobSettings || {}) };
-  if (!saved || typeof saved !== 'object') return out;
-
-  const printer = saved.printer || saved.printerName;
-  if (saved.paperName != null) out.paperName = saved.paperName;
-  if (saved.orientation === 1 || saved.orientation === 2) {
-    out.orientation = saved.orientation;
-  }
-  if (saved.copies != null) out.copies = saved.copies;
-  if (Object.prototype.hasOwnProperty.call(saved, 'printer') || saved.printerName) {
-    out.printer = printer || undefined;
-  }
-  if (saved.marginTop != null) out.marginTop = saved.marginTop;
-  if (saved.marginRight != null) out.marginRight = saved.marginRight;
-  if (saved.marginBottom != null) out.marginBottom = saved.marginBottom;
-  if (saved.marginLeft != null) out.marginLeft = saved.marginLeft;
-
-  if (saved.paperName && PAPER_PRESETS[saved.paperName]) {
+function applyNamedPaper(out, paperName, overlay) {
+  out.paperName = paperName;
+  if (PAPER_PRESETS[paperName]) {
     delete out.pageWidth;
     delete out.pageHeight;
     delete out.width;
     delete out.height;
-  } else if (saved.paperName === 'Custom') {
-    if (saved.pageWidth != null) out.pageWidth = saved.pageWidth;
-    if (saved.pageHeight != null) out.pageHeight = saved.pageHeight;
+    if (/^Pin/.test(paperName)) {
+      const preset = PAPER_PRESETS[paperName];
+      out.pageWidth = preset.width;
+      out.pageHeight = preset.height;
+      out.orientation = 2;
+      out.lockPageBox = true;
+    }
+    return;
   }
+  if (paperName === 'Custom' && overlay) {
+    if (overlay.pageWidth != null) out.pageWidth = overlay.pageWidth;
+    if (overlay.pageHeight != null) out.pageHeight = overlay.pageHeight;
+  }
+}
+
+/**
+ * Toolbar / last-used prefs overlay the captured page.
+ * Named paper (针式二等分, A4, …) replaces inferred mm so the dropdown actually
+ * changes the sheet. Pin sheets always win — that is the physical paper.
+ */
+export function mergeWithSavedPrefs(jobSettings, overlay) {
+  const out = { ...(jobSettings || {}) };
+  if (!overlay || typeof overlay !== 'object') return out;
+
+  const printer = overlay.printer || overlay.printerName;
+  if (Object.prototype.hasOwnProperty.call(overlay, 'printer') || overlay.printerName) {
+    out.printer = printer || undefined;
+  }
+  if (overlay.copies != null) out.copies = overlay.copies;
+
+  if (overlay.paperName != null && overlay.paperName !== '') {
+    applyNamedPaper(out, overlay.paperName, overlay);
+  }
+
+  if (!/^Pin/.test(String(out.paperName || '')) &&
+      (overlay.orientation === 1 || overlay.orientation === 2)) {
+    out.orientation = overlay.orientation;
+  }
+
+  if (overlay.marginTop != null) out.marginTop = overlay.marginTop;
+  if (overlay.marginRight != null) out.marginRight = overlay.marginRight;
+  if (overlay.marginBottom != null) out.marginBottom = overlay.marginBottom;
+  if (overlay.marginLeft != null) out.marginLeft = overlay.marginLeft;
 
   return out;
 }

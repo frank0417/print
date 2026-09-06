@@ -324,19 +324,26 @@ function printWithPdfToPrinter(helper, pdfPath, target, copies) {
 }
 
 function printWithSumatra(helper, pdfPath, target, copies, settings) {
-  // noscale avoids blurry stretch-to-fit on Windows drivers
+  const htmlToPdf = require('./html-to-pdf');
+  const paper = htmlToPdf.resolvePaper(settings || {});
+  const pdfBox = htmlToPdf.readPdfPageSize(pdfPath);
+  const previewWide = htmlToPdf.isWideBox(paper.width, paper.height);
+  const pin = htmlToPdf.isPinPrinter(target) || htmlToPdf.isPinSettings(settings);
+  // Laser: 100% noscale (fit-to-page is the usual blur cause).
+  // Pin / 80-col: A4-landscape 297mm will not fit ~210mm printable width.
+  // noscale then left-aligns → 不居中、右边切掉. shrink scales down and centers.
+  // monochrome avoids gray ClearType edges that look like 重影 on pins.
   const printSettings = [];
   if (copies > 1) printSettings.push(String(copies) + 'x');
   printSettings.push('noscale');
-
-  const paper = require('./html-to-pdf').resolvePaper(settings || {});
-  const pdfBox = require('./html-to-pdf').readPdfPageSize(pdfPath);
-  const isWide = require('./html-to-pdf').isWideBox;
-  const previewWide = isWide(paper.width, paper.height);
-  // EPSON / pin drivers treat default paper as portrait. A wide PDF sent with
-  // "portrait" is auto-rotated onto that paper → 预览横、纸上竖.
-  // Tell the printer landscape whenever the preview sheet is wider than tall.
-  const landscape = previewWide;
+  const userLand =
+    Number(paper.orientation) === 2 ||
+    Number(settings && settings.orientation) === 2;
+  let landscape = userLand || previewWide;
+  // Pin: only noscale+landscape actually comes out of the EPSON LQ.
+  // paper= custom form and monochrome are dropped by the driver (queue
+  // empty, no page). Do not send them.
+  if (pin) landscape = true;
   printSettings.push(landscape ? 'landscape' : 'portrait');
 
   try {
@@ -354,6 +361,15 @@ function printWithSumatra(helper, pdfPath, target, copies, settings) {
           : '?') +
         ' printer=' +
         (landscape ? 'landscape' : 'portrait') +
+        (pin ? ' pin=1' : '') +
+        ' margin=' +
+        paper.margins.top +
+        '/' +
+        paper.margins.right +
+        '/' +
+        paper.margins.bottom +
+        '/' +
+        paper.margins.left +
         ' settings=' +
         printSettings.join(',') +
         '\n'
@@ -374,31 +390,11 @@ function printWithSumatra(helper, pdfPath, target, copies, settings) {
     timeout: 120000,
   });
   if (r.status !== 0) {
-    const args2 = ['-silent', '-exit-when-done'];
-    if (target) args2.push('-print-to', target);
-    else args2.push('-print-to-default');
-    const settings2 = [];
-    if (copies > 1) settings2.push(String(copies) + 'x');
-    settings2.push('shrink', landscape ? 'landscape' : 'portrait');
-    args2.push('-print-settings', settings2.join(','));
-    args2.push(pdfPath);
-    const r2 = spawnSync(helper, args2, {
-      encoding: 'utf8',
-      windowsHide: true,
-      cwd: path.dirname(helper),
-      timeout: 120000,
-    });
-    if (r2.status !== 0) {
-      throw new Error(`SumatraPDF 打印失败: ${spawnDetail(r2) || spawnDetail(r) || '无输出'}`);
-    }
-    return {
-      printer: target || 'default',
-      method: 'SumatraPDF-shrink-' + (landscape ? 'landscape' : 'portrait'),
-    };
+    throw new Error(`SumatraPDF 打印失败: ${spawnDetail(r) || '无输出'}`);
   }
   return {
     printer: target || 'default',
-    method: 'SumatraPDF-noscale-' + (landscape ? 'landscape' : 'portrait'),
+    method: 'SumatraPDF-noscale-' + (landscape ? 'landscape' : 'portrait') + (pin ? '-pin100' : ''),
   };
 }
 
@@ -857,6 +853,31 @@ function printPdfWin({ pdfPath, printer, copies, settings }) {
     );
   } catch (_) {
     /* ignore */
+  }
+
+  // Default path for every Windows printer: GDI direct (pdfium → printer DC),
+  // the same pipeline Chrome itself uses. Vectors reach the driver, so pins
+  // print like Notepad/TXT and lasers stay exact at 100%. Paper is matched
+  // against what the driver actually offers (any brand); pin kind adds the
+  // fanfold layout (Letter = 2×二等分, no rotation, head-home offset).
+  // Sumatra (bitmap) remains the fallback / opt-in (printMode: 'sumatra').
+  const htmlToPdf = require('./html-to-pdf');
+  const s = require('./printer-kind').applyPrinterKind(Object.assign({}, settings || {}));
+  const pin = htmlToPdf.isPinSettings(s);
+  const mode = String(s.printMode || (s.gdi === false || s.gdi === 'false' ? 'sumatra' : 'gdi'));
+  if (mode !== 'sumatra') {
+    try {
+      return require('./win-gdi-print').printPdfGdi({
+        pdfPath,
+        printer: target,
+        copies,
+        fanfold: pin,
+        leftEdgeMm: s.pinLeftEdgeMm,
+        resolution: s.pinResolution,
+      });
+    } catch (err) {
+      errors.push(err.message || String(err));
+    }
   }
 
   // Silent helpers only. Chrome kiosk / IE / PrintTo verb open extra windows

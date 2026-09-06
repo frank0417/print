@@ -278,6 +278,50 @@ button:hover {
   z-index: 0;
 }
 
+/* Fanfold zones the pins cannot reach (tractor strip + carriage limit). */
+.pin-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(120, 130, 150, 0.22) 0 1.5px,
+    transparent 1.5px 6px
+  );
+}
+
+.pin-zone.left {
+  left: 0;
+  border-right: 1px dashed rgba(120, 130, 150, 0.7);
+}
+
+.pin-zone.right {
+  right: 0;
+  border-left: 1px dashed rgba(120, 130, 150, 0.7);
+}
+
+.pin-holes {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-image: radial-gradient(circle at 50% 50%, #cfd5df 1.7mm, transparent 1.9mm);
+  background-size: 12.7mm 12.7mm;
+  background-repeat: repeat-y;
+  background-position: 0 6.35mm;
+}
+
+.pin-zone.left .pin-holes {
+  left: 0;
+  border-right: 1px dotted rgba(120, 130, 150, 0.7);
+}
+
+.pin-zone.right .pin-holes {
+  right: 0;
+  border-left: 1px dotted rgba(120, 130, 150, 0.7);
+}
+
 .status {
   position: fixed;
   left: 16px;

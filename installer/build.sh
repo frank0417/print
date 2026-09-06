@@ -16,7 +16,7 @@ NODE_VERSION="${PRINTKIT_NODE_VERSION:-22.14.0}"
 WIN_NODE_VERSION="${PRINTKIT_WIN_NODE_VERSION:-12.22.12}"
 STAGE="$DIST/.stage"
 ARTIFACTS="${PRINTKIT_ARTIFACTS:-/opt/cursor/artifacts}"
-VERSION="0.5.17"
+VERSION="0.5.28"
 
 mkdir -p "$DIST" "$CACHE" "$STAGE" "$ARTIFACTS"
 
@@ -85,8 +85,21 @@ build_windows_payload() {
   cp "$CACHE/PDFtoPrinter.exe" "$stage/app/bin/PDFtoPrinter.exe"
   cp "$CACHE/PDFtoPrinter.exe" "$stage/app/host/bin/PDFtoPrinter.exe"
 
-  # PDFtoPrinter.exe currently requires pdfium.dll; SumatraPDF is the reliable silent printer.
-  local sumatra_zip="$CACHE/SumatraPDF-3.5.2-64.zip"
+  # pdfium.dll: GDI direct print for pin printers (host/lib/win-gdi-print.js)
+  # and the runtime PDFtoPrinter.exe needs. x64 only (Win7 x64+).
+  local pdfium_tgz="$CACHE/pdfium-win-x64.tgz"
+  download "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz" "$pdfium_tgz"
+  rm -rf "$CACHE/pdfium-x64"
+  mkdir -p "$CACHE/pdfium-x64"
+  tar -xzf "$pdfium_tgz" -C "$CACHE/pdfium-x64"
+  if [[ -f "$CACHE/pdfium-x64/bin/pdfium.dll" ]]; then
+    cp "$CACHE/pdfium-x64/bin/pdfium.dll" "$stage/app/bin/pdfium.dll"
+    cp "$CACHE/pdfium-x64/bin/pdfium.dll" "$stage/app/host/bin/pdfium.dll"
+  else
+    log "WARN: pdfium.dll not found in tgz"
+  fi
+
+  # SumatraPDF: silent bitmap print path for laser/inkjet (fallback for pins).  local sumatra_zip="$CACHE/SumatraPDF-3.5.2-64.zip"
   download "https://www.sumatrapdfreader.org/dl/rel/3.5.2/SumatraPDF-3.5.2-64.zip" "$sumatra_zip"
   rm -rf "$CACHE/sumatra-extract"
   mkdir -p "$CACHE/sumatra-extract"

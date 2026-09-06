@@ -228,11 +228,12 @@ async function htmlToPdfViaCdp({ htmlPath, pdfPath, settings }) {
     await sleep(20);
 
     const paper = resolvePaper(settings);
-    const margins = paper.margins || {};
+    const pin = require('./html-to-pdf').isPinSettings(settings);
     const result = await cdp.send(
       'Page.printToPDF',
       {
-        printBackground: true,
+        // Pin: gray cell fills dither into muddy dots. TXT has no fills.
+        printBackground: !pin,
         // false: paperWidth/Height win over any @page in business CSS
         preferCSSPageSize: false,
         // paper inches already encode 横/竖 — never also set landscape
@@ -241,10 +242,12 @@ async function htmlToPdfViaCdp({ htmlPath, pdfPath, settings }) {
         scale: 1,
         paperWidth: paper.width / 25.4,
         paperHeight: paper.height / 25.4,
-        marginTop: Number(margins.top || 0) / 25.4,
-        marginBottom: Number(margins.bottom || 0) / 25.4,
-        marginLeft: Number(margins.left || 0) / 25.4,
-        marginRight: Number(margins.right || 0) / 25.4,
+        // Margins are padding on .pk-page (same as preview). Do not add a
+        // second CSS/@page/CDP inset — that shifts the ticket right/down.
+        marginTop: 0,
+        marginBottom: 0,
+        marginLeft: 0,
+        marginRight: 0,
         transferMode: 'ReturnAsBase64',
       },
       sessionId

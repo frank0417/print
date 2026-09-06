@@ -7,6 +7,8 @@ node_modules/
 native-host/printkit-host
 native-host/printkit-host.cmd
 native-host/com.printkit.host.json
+native-host/bin/*.dll
+native-host/bin/*.exe
 *.log
 dist/
 dist/.stage/

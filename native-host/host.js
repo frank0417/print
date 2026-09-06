@@ -186,7 +186,9 @@ async function handle(msg) {
 }
 
 async function doPrint(payload) {
-  const settings = payload.settings || {};
+  // Classify the target once (driver probe, cached) so PDF styling and the
+  // print path agree on pin vs page layout for any brand.
+  const settings = require('./lib/printer-kind').applyPrinterKind(payload.settings || {});
   const printer = settings.printer || settings.printerName || null;
   const copies = Math.max(1, Number(settings.copies) || 1);
   const jobDir = fs.mkdtempSync(path.join(os.tmpdir(), 'printkit-'));

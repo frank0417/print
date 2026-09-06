@@ -109,8 +109,8 @@
         index: index + 1,
         id: el.id || `page${index + 1}`,
         html: el.outerHTML,
-        width: el.offsetWidth || null,
-        height: el.offsetHeight || null,
+        width: Math.max(el.offsetWidth || 0, el.scrollWidth || 0) || null,
+        height: Math.max(el.offsetHeight || 0, el.scrollHeight || 0) || null,
       }));
     }
 

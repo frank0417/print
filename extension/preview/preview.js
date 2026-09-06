@@ -1,4 +1,12 @@
-import { PAPER_PRESETS, resolvePaper, normalizeMargins } from '../lib/paper.js';
+import {
+  PAPER_PRESETS,
+  resolvePaper,
+  normalizeMargins,
+  isPinPrinter,
+  matchPinSheet,
+  normalizePinSheetName,
+  pinUnprintable,
+} from '../lib/paper.js';
 import {
   loadPreviewPrefs,
   savePreviewPrefs,
@@ -62,6 +70,11 @@ function readSettingsFromUi() {
     const h = Number(job?.settings?.pageHeight);
     if (Number.isFinite(w) && w > 0) ui.pageWidth = w;
     if (Number.isFinite(h) && h > 0) ui.pageHeight = h;
+  } else if (PAPER_PRESETS[paperName] && /^Pin/.test(paperName)) {
+    ui.pageWidth = PAPER_PRESETS[paperName].width;
+    ui.pageHeight = PAPER_PRESETS[paperName].height;
+    ui.orientation = 2;
+    ui.lockPageBox = true;
   }
   return ui;
 }
@@ -90,9 +103,20 @@ function schedulePersist() {
 }
 
 function applySettingsToUi(settings = {}) {
+  const pinMatch =
+    matchPinSheet(settings.pageWidth || settings.width, settings.pageHeight || settings.height) ||
+    (settings.paperName && PAPER_PRESETS[settings.paperName] && /^(Pin2|Pin3|PinFull)$/.test(settings.paperName)
+      ? settings.paperName
+      : null);
   const named = settings.paperName && PAPER_PRESETS[settings.paperName];
-  if (named) {
+  if (pinMatch) {
+    els.paperName.value = pinMatch;
+    els.orientation.value = '2';
+  } else if (named) {
     els.paperName.value = settings.paperName;
+    if (settings.orientation === 1 || settings.orientation === 2) {
+      els.orientation.value = String(settings.orientation);
+    }
   } else if (
     settings.paperName === 'Custom' ||
     settings.pageWidth ||
@@ -100,10 +124,10 @@ function applySettingsToUi(settings = {}) {
   ) {
     ensureCustomPaperOption();
     els.paperName.value = 'Custom';
-  } else if (settings.paperName && PAPER_PRESETS[settings.paperName]) {
-    els.paperName.value = settings.paperName;
-  }
-  if (settings.orientation === 1 || settings.orientation === 2) {
+    if (settings.orientation === 1 || settings.orientation === 2) {
+      els.orientation.value = String(settings.orientation);
+    }
+  } else if (settings.orientation === 1 || settings.orientation === 2) {
     els.orientation.value = String(settings.orientation);
   }
   if (settings.copies) els.copies.value = String(settings.copies);
@@ -170,12 +194,33 @@ function renderJob() {
 
   els.stage.innerHTML = '';
 
+  const pinSheet =
+    normalizePinSheetName(settings.paperName) || matchPinSheet(size.width, size.height);
+  const zones = pinSheet ? pinUnprintable(settings.printer || settings.printerName, size.width) : null;
+
   for (const page of job.pages) {
     const sheet = document.createElement('section');
     sheet.className = 'sheet';
     sheet.style.width = `${size.width}mm`;
+    sheet.style.height = `${size.height}mm`;
     sheet.style.minHeight = `${size.height}mm`;
+    sheet.style.maxHeight = `${size.height}mm`;
     sheet.style.padding = `${margins.top}mm ${margins.right}mm ${margins.bottom}mm ${margins.left}mm`;
+
+    if (zones) {
+      // Show the tractor strips + head limit so 预览 == 纸上: anything under
+      // the hatch is physically unreachable by the pins.
+      for (const side of ['left', 'right']) {
+        const zone = document.createElement('div');
+        zone.className = `pin-zone ${side} no-print`;
+        zone.style.width = `${zones[side]}mm`;
+        const holes = document.createElement('div');
+        holes.className = 'pin-holes';
+        holes.style.width = `${zones.strip}mm`;
+        zone.appendChild(holes);
+        sheet.appendChild(zone);
+      }
+    }
 
     if (job.overlay && typeof job.overlay === 'string') {
       const overlay = document.createElement('div');
@@ -192,7 +237,7 @@ function renderJob() {
       :host { display: block; width: 100%; height: 100%; overflow: hidden; }
       * { box-sizing: border-box; scrollbar-width: none !important; }
       *::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
-      html, body, div, table { overflow: hidden !important; }
+      html, body { overflow: visible !important; }
       img, canvas, svg, .barcode, [class*="barcode"] {
         image-rendering: -webkit-optimize-contrast;
         image-rendering: crisp-edges;
@@ -212,13 +257,19 @@ function renderJob() {
       }
     }
     const wrap = document.createElement('div');
+    wrap.className = 'pk-fit';
     wrap.innerHTML = page.html;
     shadow.appendChild(wrap);
     sheet.appendChild(inner);
+    for (const link of shadow.querySelectorAll('link[rel="stylesheet"]')) {
+      link.addEventListener('load', () => fitContentWidth(wrap));
+    }
 
     const label = document.createElement('div');
     label.className = 'sheet-label no-print';
-    label.textContent = `${page.id || 'page'} · ${size.width}×${size.height}mm`;
+    label.textContent = zones
+      ? `${page.id || 'page'} · ${size.width}×${size.height}mm · 斜纹区（左 ${zones.left} / 右 ${zones.right}mm）针头打不到`
+      : `${page.id || 'page'} · ${size.width}×${size.height}mm`;
     sheet.appendChild(label);
 
     const fit = document.createElement('div');
@@ -227,9 +278,26 @@ function renderJob() {
     els.stage.appendChild(fit);
   }
 
+  for (const wrap of els.stage.querySelectorAll('.sheet-inner')) {
+    const inner = wrap.shadowRoot && wrap.shadowRoot.querySelector('.pk-fit');
+    if (inner) fitContentWidth(inner);
+  }
+
   document.title = job.title || 'PrintKit';
   setStatus(statusLine(size));
   requestAnimationFrame(fitSheets);
+}
+
+/**
+ * Same rule as the host's PDF page: content wider than the box (fixed-px
+ * tables) is shrunk with CSS zoom instead of being clipped on the right.
+ */
+function fitContentWidth(el) {
+  if (!el) return;
+  el.style.zoom = '1';
+  const cw = el.clientWidth;
+  const sw = el.scrollWidth;
+  if (sw > cw + 1) el.style.zoom = String(cw / sw);
 }
 
 /**
@@ -277,6 +345,66 @@ function fitSheets() {
   }
 }
 
+/** Zones the pins cannot reach for the current sheet/printer, or null. */
+function currentPinZones() {
+  if (!els.paperName) return null;
+  const name = els.paperName.value;
+  if (!normalizePinSheetName(name)) return null;
+  const preset = PAPER_PRESETS[normalizePinSheetName(name)];
+  return pinUnprintable(els.printer?.value, preset.width);
+}
+
+/**
+ * Content under the tractor strip / past the carriage is lost on paper, so
+ * left/right margins can never be smaller than those zones. Mirrors the host.
+ */
+function enforcePinMargins() {
+  const zones = currentPinZones();
+  let changed = false;
+  for (const [el, min] of [
+    [els.marginLeft, zones ? zones.left : 0],
+    [els.marginRight, zones ? zones.right : 0],
+  ]) {
+    if (!el) continue;
+    if (zones) el.min = String(min);
+    else el.removeAttribute('min');
+    if (zones && Number(el.value) < min) {
+      el.value = String(min);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function officePaperSelected() {
+  return /^(A3|A4|A5|B4|B5|Letter|Legal|Tabloid)$/i.test(els.paperName?.value || '');
+}
+
+/** 针式机默认三联二等分，避免仍按 A4 297mm 出纸。 */
+function syncPaperForPrinter() {
+  if (!els.printer || !els.paperName) return false;
+  if (!isPinPrinter(els.printer.value)) return false;
+  if (officePaperSelected()) {
+    els.paperName.value = 'Pin2';
+    els.orientation.value = '2';
+    return true;
+  }
+  if (els.paperName.value === 'Custom' && job && job.settings) {
+    const w = Number(job.settings.pageWidth || job.settings.width);
+    const h = Number(job.settings.pageHeight || job.settings.height);
+    if (w && h) {
+      const a = Math.min(w, h);
+      const b = Math.max(w, h);
+      if (Math.abs(a - 210) <= 5 && Math.abs(b - 297) <= 5) {
+        els.paperName.value = 'Pin2';
+        els.orientation.value = '2';
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function setZoomMode(mode) {
   zoomMode = mode;
   if (els.zoomBar) {
@@ -308,6 +436,11 @@ function bindUi() {
     els.marginLeft,
   ]) {
     el?.addEventListener('change', () => {
+      if (el === els.printer) syncPaperForPrinter();
+      if (el === els.paperName && /^(Pin2|Pin3|PinFull)$/.test(els.paperName.value)) {
+        els.orientation.value = '2';
+      }
+      enforcePinMargins();
       renderJob();
       persistUiPrefs();
     });
@@ -342,6 +475,7 @@ function bindUi() {
     if (printing) return;
     printing = true;
     if (els.btnPrint) els.btnPrint.disabled = true;
+    if (enforcePinMargins()) renderJob();
     const ui = readSettingsFromUi();
     const size = resolveSize(ui);
     const settings = mergedSettings(ui);
@@ -349,8 +483,13 @@ function bindUi() {
     settings.pageHeight = size.height;
     settings.lockPageBox = true;
     settings.orientation = size.width >= size.height ? 2 : 1;
-    settings.paperName =
-      ui.paperName === 'Custom' ? 'Custom' : settings.paperName || ui.paperName;
+    settings.paperName = ui.paperName || settings.paperName;
+    settings.marginTop = ui.marginTop;
+    settings.marginRight = ui.marginRight;
+    settings.marginBottom = ui.marginBottom;
+    settings.marginLeft = ui.marginLeft;
+    delete settings.contentWidth;
+    delete settings.contentHeight;
     await persistUiPrefs();
     setStatus(
       `正在打印（${settings.orientation === 2 ? '横向' : '纵向'} ${size.width}×${size.height}mm）…`
@@ -462,6 +601,7 @@ async function boot() {
     if (saved.zoomMode) zoomMode = saved.zoomMode;
   }
   setZoomMode(zoomMode);
+  enforcePinMargins();
   renderJob();
   persistUiPrefs();
   focusPrint();
@@ -488,6 +628,8 @@ async function boot() {
       } else if (saved && Object.prototype.hasOwnProperty.call(saved, 'printer')) {
         els.printer.value = saved.printer || '';
       }
+      const synced = syncPaperForPrinter();
+      if (enforcePinMargins() || synced) renderJob();
       persistUiPrefs();
       focusPrint();
     })

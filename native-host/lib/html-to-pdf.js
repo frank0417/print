@@ -14,7 +14,107 @@ const PAPER_PRESETS = {
   B5: { width: 176, height: 250 },
   Letter: { width: 216, height: 279 },
   Legal: { width: 216, height: 356 },
+  Pin2: { width: 241, height: 140 },
+  Pin3: { width: 241, height: 93 },
+  PinFull: { width: 241, height: 279 },
 };
+
+const PIN_SHEET_ALIASES = {
+  Pin2: 'Pin2',
+  Pin3: 'Pin3',
+  PinFull: 'PinFull',
+  二等分: 'Pin2',
+  '2等分': 'Pin2',
+  三联二等分: 'Pin2',
+  三等分: 'Pin3',
+  '3等分': 'Pin3',
+  全页: 'PinFull',
+  整页: 'PinFull',
+};
+
+function normalizePinSheetName(name) {
+  if (name == null || name === '') return null;
+  return PIN_SHEET_ALIASES[String(name).trim()] || null;
+}
+
+function isPinSheetName(name) {
+  return !!normalizePinSheetName(name);
+}
+
+function matchPinSheet(width, height) {
+  const w = Number(width);
+  const h = Number(height);
+  if (!w || !h) return null;
+  const wide = Math.max(w, h);
+  const short = Math.min(w, h);
+  if (Math.abs(wide - 241) > 8) return null;
+  if (Math.abs(short - 140) <= 8) return 'Pin2';
+  if (Math.abs(short - 93) <= 8) return 'Pin3';
+  if (Math.abs(short - 279) <= 10) return 'PinFull';
+  return null;
+}
+
+function looksLikeOfficePaper(name, width, height) {
+  const n = String(name || '');
+  if (/^(A3|A4|A5|B4|B5|Letter|Legal|Tabloid)$/i.test(n)) return true;
+  const w = Number(width);
+  const h = Number(height);
+  if (!w || !h) return true;
+  const a = Math.min(w, h);
+  const b = Math.max(w, h);
+  return (
+    (Math.abs(a - 210) <= 5 && Math.abs(b - 297) <= 5) ||
+    (Math.abs(a - 148) <= 5 && Math.abs(b - 210) <= 5) ||
+    (Math.abs(a - 176) <= 5 && Math.abs(b - 250) <= 5) ||
+    (Math.abs(a - 216) <= 6 && Math.abs(b - 279) <= 6)
+  );
+}
+
+/** Pin / dot-matrix printer by name (brand patterns; see printer-kind.js). */
+function isPinPrinter(name) {
+  return require('./printer-kind').pinByName(name);
+}
+
+/**
+ * Pin layout for this job: resolved printer kind (driver probe or name),
+ * or the user explicitly picked a 针式 sheet in the preview.
+ */
+function isPinSettings(settings) {
+  const s = settings || {};
+  if (s.printerKind === 'pin') return true;
+  // A confident driver/name verdict wins (a laser feeding pre-cut 241×140
+  // forms must not get the fanfold offsets). Unknown driver → trust the
+  // user's 针式 sheet choice.
+  if (s.printerKind && s.printerKindSource && s.printerKindSource !== 'unknown') return false;
+  if (normalizePinSheetName(s.paperName || s.paper)) return true;
+  return isPinPrinter(s.printer || s.printerName);
+}
+
+function applyPinFormPaper(settings) {
+  const s = Object.assign({}, settings || {});
+  if (!isPinSettings(s)) return s;
+  const pinName = normalizePinSheetName(s.paperName || s.paper);
+  if (pinName) {
+    const preset = PAPER_PRESETS[pinName];
+    s.paperName = pinName;
+    s.pageWidth = preset.width;
+    s.pageHeight = preset.height;
+    s.orientation = 2;
+    s.lockPageBox = true;
+    return s;
+  }
+  const w = Number(s.pageWidth || s.width || 0);
+  const h = Number(s.pageHeight || s.height || 0);
+  if (matchPinSheet(w, h)) return s;
+  if (looksLikeOfficePaper(s.paperName || s.paper, w, h)) {
+    s.paperName = 'Pin2';
+    s.pageWidth = 241;
+    s.pageHeight = 140;
+    s.orientation = 2;
+    s.lockPageBox = true;
+  }
+  return s;
+}
 
 function resolveChromePath() {
   if (process.env.PRINTKIT_CHROME) return process.env.PRINTKIT_CHROME;
@@ -57,13 +157,20 @@ function truthy(v) {
 }
 
 function resolvePaper(settings = {}) {
-  const name = settings.paperName || settings.paper || 'A4';
+  settings = applyPinFormPaper(settings);
+  const pinName = normalizePinSheetName(settings.paperName || settings.paper);
+  const name = pinName || settings.paperName || settings.paper || 'A4';
   const preset = PAPER_PRESETS[name] || PAPER_PRESETS.A4;
   let width = Number(settings.pageWidth || settings.width || preset.width);
   let height = Number(settings.pageHeight || settings.height || preset.height);
-  const orientation = Number(settings.orientation || 1) === 2 ? 2 : 1;
+  let orientation = Number(settings.orientation || 1) === 2 ? 2 : 1;
   // Preview sends the sheet mm it actually drew. Do not swap again.
-  if (!truthy(settings.lockPageBox)) {
+  // Pin-feed sheets are already the physical ticket (241×140 二等分, etc.).
+  if (pinName) {
+    width = preset.width;
+    height = preset.height;
+    orientation = 2;
+  } else if (!truthy(settings.lockPageBox)) {
     if (orientation === 2 && width < height) {
       [width, height] = [height, width];
     } else if (orientation === 1 && width > height) {
@@ -76,7 +183,26 @@ function resolvePaper(settings = {}) {
     bottom: num(settings.marginBottom, 0),
     left: num(settings.marginLeft, 0),
   };
+  // Fanfold: the pins cannot reach the tractor strips / beyond the carriage,
+  // so content there is simply lost. Keep margins at least that wide (the
+  // preview enforces the same minimums, so 预览 == 纸).
+  if (pinName && isPinSettings(settings)) {
+    const zone = pinUnprintable(settings.printer || settings.printerName, width);
+    margins.left = Math.max(margins.left, zone.left);
+    margins.right = Math.max(margins.right, zone.right);
+  }
   return { name, width, height, orientation, margins };
+}
+
+/** Mirror of extension/lib/paper.js pinUnprintable(). */
+function pinUnprintable(printerName, sheetWidthMm) {
+  const wide = /LQ[- ]?[12]\d{3}|FP[- ]?8[48]00|DS[- ]?(2600|5400|7860)|1600|1900|136|宽行|宽幅/i.test(
+    String(printerName || '')
+  );
+  const left = 13;
+  const printable = wide ? 345.4 : 203.2;
+  const right = Math.max(12.7, Math.round((Number(sheetWidthMm || 241) - left - printable) * 10) / 10);
+  return { left, right, strip: 12.7 };
 }
 
 function namedPresetMatches(paper) {
@@ -98,8 +224,20 @@ function namedPresetMatches(paper) {
  * Named A4/Letter/etc. still use the portrait preset + landscape flag.
  */
 function printerMedia(paper) {
+  if (
+    isPinSheetName(paper && paper.name) ||
+    matchPinSheet(paper && paper.width, paper && paper.height)
+  ) {
+    return {
+      widthMm: Number(paper.width) || 241,
+      heightMm: Number(paper.height) || 140,
+      landscape: false,
+      custom: true,
+      name: paper.name || 'Pin2',
+    };
+  }
   const preset = PAPER_PRESETS[paper && paper.name];
-  if (preset && namedPresetMatches(paper)) {
+  if (preset && namedPresetMatches(paper) && !isPinSheetName(paper.name)) {
     return {
       widthMm: preset.width,
       heightMm: preset.height,
@@ -142,10 +280,11 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
     }
   }
 
+  const m = paper.margins;
   const pageHtml = (pages || [])
     .map((p, i) => {
       const html = typeof p === 'string' ? p : p.html || '';
-      return `<section class="pk-page" data-page="${i + 1}">${html}</section>`;
+      return `<section class="pk-page" data-page="${i + 1}"><div class="pk-fit">${html}</div></section>`;
     })
     .join('\n');
 
@@ -158,7 +297,7 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
   <style>
     @page {
       size: ${paper.width}mm ${paper.height}mm;
-      margin: ${paper.margins.top}mm ${paper.margins.right}mm ${paper.margins.bottom}mm ${paper.margins.left}mm;
+      margin: 0;
     }
     html, body {
       margin: 0;
@@ -190,10 +329,21 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
       }
     }
     .pk-page {
-      width: 100%;
+      width: ${paper.width}mm;
+      height: ${paper.height}mm;
       box-sizing: border-box;
+      padding: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm;
+      overflow: hidden;
       page-break-after: always;
       break-after: page;
+      position: relative;
+      display: block;
+      margin: 0;
+    }
+    .pk-fit {
+      width: 100%;
+      margin: 0;
+      transform: none;
     }
     img, canvas, svg {
       image-rendering: -webkit-optimize-contrast;
@@ -218,6 +368,23 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
       image-rendering: crisp-edges;
       image-rendering: -webkit-optimize-contrast;
     }
+    /* Pin: gray/ClearType becomes dithered double-strike. TXT is sharp
+       because the driver uses ROM glyphs; stay as close as we can. */
+    ${
+      isPinSettings(settings)
+        ? `html, body, table, td, th, div, span, p, font, b, strong, label {
+      color: #000 !important;
+      text-shadow: none !important;
+      -webkit-text-stroke: 0 !important;
+      font-family: SimSun, "宋体", NSimSun, "新宋体", serif !important;
+    }
+    html, body, table, td, th, div, section, .pk-page, .pk-fit {
+      background: #fff !important;
+      background-image: none !important;
+    }
+    * { box-shadow: none !important; filter: none !important; text-shadow: none !important; }`
+        : ''
+    }
     * {
       scrollbar-width: none !important;
     }
@@ -230,6 +397,23 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
 </head>
 <body>
 ${pageHtml}
+<script>
+// Fixed-width tables wider than the content box would be clipped; shrink
+// them (CSS zoom stays vector on GDI). Same rule runs in the preview.
+(function () {
+  function fit() {
+    var list = document.querySelectorAll('.pk-fit');
+    for (var i = 0; i < list.length; i++) {
+      var el = list[i];
+      el.style.zoom = '1';
+      var cw = el.clientWidth, sw = el.scrollWidth;
+      if (sw > cw + 1) el.style.zoom = String(cw / sw);
+    }
+  }
+  fit();
+  window.addEventListener('load', fit);
+})();
+</script>
 </body>
 </html>`;
 }
@@ -313,7 +497,6 @@ async function htmlJobToPdf({ jobDir, title, pages, stylesheets, settings }) {
     '--allow-file-access-from-files',
     // Sharper PDF text/fonts on Windows 7 Chrome
     '--font-render-hinting=none',
-    '--enable-font-antialiasing',
     '--run-all-compositor-stages-before-draw',
     '--disable-lcd-text',
     '--force-device-scale-factor=1',
@@ -373,6 +556,11 @@ module.exports = {
   printerMedia,
   readPdfPageSize,
   isWideBox,
+  isPinPrinter,
+  isPinSettings,
+  pinUnprintable,
+  isPinSheetName,
+  matchPinSheet,
   PAPER_PRESETS,
 };
 
