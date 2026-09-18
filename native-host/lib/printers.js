@@ -251,14 +251,8 @@ function resolveWinPrinterTarget(printer) {
 }
 
 function logPrint(msg) {
-  try {
-    fs.appendFileSync(
-      path.join(require('os').tmpdir(), 'printkit-host.log'),
-      '[' + new Date().toISOString() + '] ' + msg + '\n'
-    );
-  } catch (_) {
-    /* ignore */
-  }
+  const { appendLog } = require('./hygiene');
+  appendLog('[' + new Date().toISOString() + '] ' + msg + '\n');
 }
 
 /**

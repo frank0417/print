@@ -16,6 +16,7 @@ const path = require('path');
 const { listPrinters, getDefaultPrinter, printPdf } = require('./lib/printers');
 const { htmlJobToPdf } = require('./lib/html-to-pdf');
 const update = require('./lib/update');
+const hygiene = require('./lib/hygiene');
 
 const HOST_VERSION = (() => {
   try {
@@ -41,64 +42,92 @@ function prewarmChromeSafe() {
 }
 
 function log(...args) {
-  try {
-    const line = `[${new Date().toISOString()}] ${args
-      .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
-      .join(' ')}\n`;
-    fs.appendFileSync(path.join(os.tmpdir(), 'printkit-host.log'), line);
-  } catch (_) {
-    /* ignore */
-  }
+  const line = `[${new Date().toISOString()}] ${args
+    .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+    .join(' ')}\n`;
+  hygiene.appendLog(line);
 }
 
-function readMessage() {
-  return new Promise((resolve, reject) => {
-    const header = Buffer.alloc(4);
-    let headerRead = 0;
+/**
+ * One pair of stdin listeners for the whole process.
+ * The previous per-message readMessage() added `end`/`error` listeners on
+ * every native call and never removed them — after a few thousand prints
+ * the host EventEmitter itself became a source of stutter.
+ */
+function createNativeReader() {
+  let buf = Buffer.alloc(0);
+  let mode = 'header';
+  let needed = 4;
+  const queue = [];
+  let waiting = null;
+  let ended = false;
+  let failed = null;
 
-    function onHeaderReadable() {
-      const n = process.stdin.read(4 - headerRead);
-      if (!n) return;
-      n.copy(header, headerRead);
-      headerRead += n.length;
-      if (headerRead < 4) return;
-      process.stdin.off('readable', onHeaderReadable);
-
-      const len = header.readUInt32LE(0);
-      if (len <= 0 || len > MAX_MESSAGE) {
-        reject(new Error(`非法消息长度: ${len}`));
-        return;
-      }
-
-      const chunks = [];
-      let remaining = len;
-
-      function onBodyReadable() {
-        while (remaining > 0) {
-          const chunk = process.stdin.read(Math.min(remaining, 64 * 1024));
-          if (!chunk) return;
-          chunks.push(chunk);
-          remaining -= chunk.length;
-        }
-        process.stdin.off('readable', onBodyReadable);
-        try {
-          const raw = Buffer.concat(chunks).toString('utf8');
-          resolve(JSON.parse(raw));
-        } catch (err) {
-          reject(err);
-        }
-      }
-
-      process.stdin.on('readable', onBodyReadable);
-      onBodyReadable();
+  function deliver(err, msg) {
+    if (waiting) {
+      const w = waiting;
+      waiting = null;
+      if (err) w.reject(err);
+      else w.resolve(msg);
+      return;
     }
+    if (err) failed = err;
+    else queue.push(msg);
+  }
 
-    process.stdin.on('readable', onHeaderReadable);
-    onHeaderReadable();
+  function consume() {
+    while (buf.length >= needed) {
+      if (mode === 'header') {
+        needed = buf.readUInt32LE(0);
+        buf = buf.slice(4);
+        if (needed <= 0 || needed > MAX_MESSAGE) {
+          const err = new Error(`非法消息长度: ${needed}`);
+          needed = 4;
+          mode = 'header';
+          deliver(err);
+          return;
+        }
+        mode = 'body';
+      } else {
+        const body = buf.slice(0, needed);
+        buf = buf.slice(needed);
+        mode = 'header';
+        needed = 4;
+        try {
+          deliver(null, JSON.parse(body.toString('utf8')));
+        } catch (err) {
+          deliver(err);
+        }
+      }
+    }
+  }
 
-    process.stdin.on('end', () => resolve(null));
-    process.stdin.on('error', reject);
+  process.stdin.on('readable', () => {
+    let chunk;
+    while ((chunk = process.stdin.read())) {
+      buf = Buffer.concat([buf, chunk]);
+    }
+    consume();
   });
+
+  process.stdin.on('end', () => {
+    ended = true;
+    deliver(null, null);
+  });
+
+  process.stdin.on('error', (err) => {
+    failed = err;
+    deliver(err);
+  });
+
+  return function readMessage() {
+    if (failed) return Promise.reject(failed);
+    if (queue.length) return Promise.resolve(queue.shift());
+    if (ended) return Promise.resolve(null);
+    return new Promise((resolve, reject) => {
+      waiting = { resolve, reject };
+    });
+  };
 }
 
 function writeMessage(obj) {
@@ -256,15 +285,14 @@ async function doPrint(payload) {
     });
 
     return {
-      pdfPath,
-      htmlPath: htmlPath || null,
       printer: printResult.printer,
       copies,
       method: printResult.method,
-      jobDir,
     };
-  } catch (err) {
-    throw err;
+  } finally {
+    // Spooler / GDI already consumed the file; drop the temp HTML+PDF so
+    // %TEMP%\printkit-* does not grow without bound across a shift.
+    hygiene.scheduleRemoveDir(jobDir, process.argv.includes('--cli') ? 0 : 15000);
   }
 }
 
@@ -300,6 +328,25 @@ async function main() {
   }
 
   process.stdin.on('error', (err) => log('stdin error', err.message));
+
+  const pruned = hygiene.pruneStaleJobDirs();
+  if (pruned.removed) log('pruned stale job dirs', pruned);
+  hygiene.rotateLogIfNeeded();
+  try {
+    hygiene.pruneChromeCaches(path.join(os.tmpdir(), 'printkit-chrome-kiosk'));
+    hygiene.pruneChromeCaches(path.join(os.tmpdir(), 'printkit-chrome-profile'));
+  } catch (_) {
+    /* ignore */
+  }
+  if (nodeMajor() >= 18) {
+    try {
+      require('./lib/chrome-cdp').recycleIfStale('host-start');
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  const readMessage = createNativeReader();
 
   // Keep reading messages until stdin ends
   for (;;) {

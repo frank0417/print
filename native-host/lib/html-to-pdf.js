@@ -439,35 +439,20 @@ async function htmlJobToPdf({ jobDir, title, pages, stylesheets, settings }) {
       const t0 = Date.now();
       await htmlToPdfViaCdp({ htmlPath, pdfPath, settings });
       if (fs.existsSync(pdfPath)) {
-        try {
-          fs.appendFileSync(
-            path.join(os.tmpdir(), 'printkit-host.log'),
-            `[${new Date().toISOString()}] html-to-pdf cdp ${Date.now() - t0}ms\n`
-          );
-        } catch (_) {
-          /* ignore */
-        }
+        require('./hygiene').appendLog(
+          `[${new Date().toISOString()}] html-to-pdf cdp ${Date.now() - t0}ms\n`
+        );
         return { pdfPath: pdfPath, htmlPath: htmlPath };
       }
     } else {
-      try {
-        fs.appendFileSync(
-          path.join(os.tmpdir(), 'printkit-host.log'),
-          `[${new Date().toISOString()}] html-to-pdf skip cdp (node ${process.versions.node})\n`
-        );
-      } catch (_) {
-        /* ignore */
-      }
+      require('./hygiene').appendLog(
+        `[${new Date().toISOString()}] html-to-pdf skip cdp (node ${process.versions.node})\n`
+      );
     }
   } catch (err) {
-    try {
-      fs.appendFileSync(
-        path.join(os.tmpdir(), 'printkit-host.log'),
-        `[${new Date().toISOString()}] html-to-pdf cdp failed: ${err.message || err}\n`
-      );
-    } catch (_) {
-      /* ignore */
-    }
+    require('./hygiene').appendLog(
+      `[${new Date().toISOString()}] html-to-pdf cdp failed: ${err.message || err}\n`
+    );
   }
 
   const fileUrl =
