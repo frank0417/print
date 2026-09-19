@@ -102,6 +102,11 @@ RenderResult renderAndPrint(const PrintJob& job, const QString& pdfOutPath) {
   const std::string html =
       buildHtmlDocument(job.title.toStdString(), job.pages, job.stylesheets, job.settings);
 
+  // Long-lived host: keep WebKit's global caches from creeping between jobs.
+  // Print jobs rarely reuse resources, so a page/object cache is pure growth.
+  QWebSettings::globalSettings()->setMaximumPagesInCache(0);
+  QWebSettings::globalSettings()->setObjectCacheCapacities(0, 0, 2 * 1024 * 1024);
+
   QWebPage page;
   page.settings()->setAttribute(QWebSettings::JavascriptEnabled, false);
   page.settings()->setAttribute(QWebSettings::PrintElementBackgrounds, true);
@@ -117,6 +122,9 @@ RenderResult renderAndPrint(const PrintJob& job, const QString& pdfOutPath) {
   }
 
   page.mainFrame()->print(&printer);
+
+  // Release decoded images / fonts / parsed sheets before the next job.
+  QWebSettings::clearMemoryCaches();
 
   out.ok = true;
   out.renderMs = static_cast<double>(timer.elapsed());

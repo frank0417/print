@@ -35,5 +35,23 @@ add_executable(printkit-host-tests
 )
 target_include_directories(printkit-host-tests PRIVATE src)
 
+# Long-run render loop: RSS creep + jobId dedupe (needs Qt, offscreen).
+add_executable(printkit-render-loop-test
+  tests/test_render_loop.cpp
+  src/protocol.cpp
+  src/paper.cpp
+  src/sentinel.cpp
+  src/htmldoc.cpp
+  src/job.cpp
+  src/render.cpp
+  src/actions.cpp
+)
+target_include_directories(printkit-render-loop-test PRIVATE src)
+target_link_libraries(printkit-render-loop-test
+  Qt5::Core Qt5::Gui Qt5::Widgets Qt5::PrintSupport
+  Qt5::WebKit Qt5::WebKitWidgets
+)
+
 enable_testing()
 add_test(NAME core COMMAND printkit-host-tests)
+add_test(NAME render-loop COMMAND printkit-render-loop-test)

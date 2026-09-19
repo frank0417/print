@@ -71,11 +71,38 @@ g++ -std=c++17 -Isrc tests/test_core.cpp \
 # 或 cmake 构建后: ctest --test-dir build
 ```
 
+## 长时运行与可靠性
+
+**内存不泄露** — 打完每单立即 `QWebSettings::clearMemoryCaches()`，并关闭
+WebKit 页面缓存 / 压缩对象缓存（打印任务几乎不复用资源，缓存只会白涨）。
+回归测试 `tests/test_render_loop.cpp`（`ctest` 的 `render-loop`）单进程连打
+24 单：**预热后 20 单 RSS 仅 +132 KB**，增长超 32 MB 即测试失败。
+
+**不重复打印** — 三道防线：
+
+1. 扩展为每单生成稳定 `jobId`；宿主记住最近 32 个**成功**任务，同一 `jobId`
+   再次送达（双击、消息重发）直接返回缓存结果并标记 `duplicate: true`，
+   不再喂打印机。失败任务不缓存，可放心重试。
+2. 修复扩展 `native.js`：带 `requestId` 的迟到回复（等待方已超时）现在直接
+   丢弃，不再错误地兑现下一个等待者——那会把新任务误标为已完成，诱发用户重打。
+3. 预览窗本身有 `printing` 互斥 + Enter 防误触（沿用）。
+
+**启动可靠（无需自启动）** — Native Messaging 宿主由 Chrome 按需拉起，
+**本来就不需要开机自启 / 守护进程**，只要 manifest 注册过即可（安装脚本负责）；
+MV3 service worker 休眠后由页面消息自动唤醒。两处易踩的「起不来」已加固：
+
+- stdout 只承载帧协议字节；`qInstallMessageHandler` 把所有 Qt 日志强制到
+  stderr——任何库往 stdout 打一行字都会破坏帧，Chrome 会表现为「宿主无响应」。
+- Linux 无显示环境自动切 `offscreen` 平台；POSIX 忽略 SIGPIPE，Chrome 断开
+  管道时进程走正常退出路径。
+
 ## 实测（Ubuntu 24.04 / Qt 5.15.13 / WebKit 5.212）
 
 - 可执行文件 92 KB；空闲 RSS ≈ 38 MB（绝大部分为 Qt/WebKit 共享库页，
   多进程共享；进程私有增量在个位数 MB）
 - A5 横向两页发票渲染 219 ms；PDF MediaBox 精确 595×420 pt（=210×148 mm）
+- 连打 24 单：预热后 RSS 增长 132 KB（≈6 KB/单，无泄露趋势）
+- 同一 `jobId` 线上重复送达：第二次返回 `duplicate:true`，不重复出纸
 - IP-Sentinel 鉴权 0.002 ms；非法扩展 ID 进程直接退出（exit 3）
 - 空闲时阻塞在 `fread(stdin)`，CPU 0%；Chrome 关闭端口即退出，无驻留
 

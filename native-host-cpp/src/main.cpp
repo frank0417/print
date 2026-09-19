@@ -11,6 +11,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+#include <csignal>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -24,6 +25,13 @@
 namespace {
 
 using namespace printkit;
+
+// stdout carries ONLY framed protocol bytes. Any stray qDebug/qWarning that
+// lands on stdout corrupts a frame and Chrome reports "host not responding"
+// (looks like the host cannot start). Route every Qt message to stderr.
+void stderrMessageHandler(QtMsgType, const QMessageLogContext&, const QString& msg) {
+  std::fprintf(stderr, "%s\n", msg.toLocal8Bit().constData());
+}
 
 void ensureGuiPlatform() {
 #if !defined(_WIN32) && !defined(__APPLE__)
@@ -117,6 +125,11 @@ int main(int argc, char** argv) {
   }
 
   ensureGuiPlatform();
+  qInstallMessageHandler(stderrMessageHandler);
+#ifndef _WIN32
+  // Chrome closing the pipe must end the loop via fwrite failure, not SIGPIPE.
+  std::signal(SIGPIPE, SIG_IGN);
+#endif
   QApplication app(argc, argv);
   app.setApplicationName(QStringLiteral("printkit-host"));
 

@@ -232,8 +232,12 @@ async function silentPrintViaNative(payload, opts = {}) {
   delete settings.zoomMode;
   delete settings.savedAt;
   if (!settings.printBackground) delete settings.backgroundImage;
+  // Stable job id so the host can drop duplicate deliveries of the same job
+  // (double-click, message re-send) instead of printing twice.
+  const jobId = payload.id || uid();
   const body = {
     title: payload.title,
+    jobId,
     settings,
   };
   if (payload.pdfBase64) {
@@ -246,7 +250,8 @@ async function silentPrintViaNative(payload, opts = {}) {
   const res = await nativeRequest('print', body, 180000);
 
   return {
-    jobId: uid(),
+    jobId,
+    duplicate: res.duplicate === true || undefined,
     printer: res.printer,
     method: res.method,
     pdfPath: res.pdfPath,

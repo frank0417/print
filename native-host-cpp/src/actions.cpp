@@ -1,15 +1,47 @@
 #include "actions.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QJsonArray>
 #include <QPrinterInfo>
 #include <QSysInfo>
+
+#include <deque>
+#include <utility>
 
 #include "job.h"
 #include "render.h"
 #include "version.h"
 
 namespace printkit {
+
+namespace {
+
+// Recently completed job ids → cached success reply. A duplicate delivery of
+// the same job (double-click, message re-send over the same port) returns the
+// cached result instead of feeding the printer twice. Only successful prints
+// are remembered so a failed job can always be retried.
+constexpr size_t kMaxRememberedJobs = 32;
+std::deque<std::pair<QString, QJsonObject>>& recentJobs() {
+  static std::deque<std::pair<QString, QJsonObject>> jobs;
+  return jobs;
+}
+
+const QJsonObject* findRecentJob(const QString& jobId) {
+  if (jobId.isEmpty()) return nullptr;
+  for (const auto& entry : recentJobs()) {
+    if (entry.first == jobId) return &entry.second;
+  }
+  return nullptr;
+}
+
+void rememberJob(const QString& jobId, const QJsonObject& reply) {
+  if (jobId.isEmpty()) return;
+  recentJobs().emplace_back(jobId, reply);
+  while (recentJobs().size() > kMaxRememberedJobs) recentJobs().pop_front();
+}
+
+}  // namespace
 
 QJsonObject hostInfo() {
   QJsonObject info;
@@ -59,17 +91,34 @@ QJsonObject handleRequest(const QJsonObject& request) {
       reply.insert(QLatin1String("name"), def.printerName());
     }
   } else if (action == QLatin1String("print")) {
-    const PrintJob job = parsePrintJob(request.value(QLatin1String("payload")).toObject());
-    const RenderResult res = renderAndPrint(job);
-    reply.insert(QLatin1String("ok"), res.ok);
-    if (res.ok) {
-      reply.insert(QLatin1String("printer"), res.printer);
-      reply.insert(QLatin1String("method"), res.method);
-      reply.insert(QLatin1String("copies"), res.copies);
-      reply.insert(QLatin1String("renderMs"), res.renderMs);
-      reply.insert(QLatin1String("version"), QLatin1String(kHostVersion));
+    const QJsonObject payload = request.value(QLatin1String("payload")).toObject();
+    const QString jobId = payload.value(QLatin1String("jobId")).toString();
+
+    // Optional paperless verification: render to a PDF under the temp dir
+    // instead of a device (used by self-tests; path is confined to tmp).
+    QString outPdf = payload.value(QLatin1String("outPdf")).toString();
+    if (!outPdf.isEmpty() &&
+        !QDir::cleanPath(outPdf).startsWith(QDir::cleanPath(QDir::tempPath()))) {
+      outPdf.clear();
+    }
+
+    if (const QJsonObject* done = findRecentJob(jobId)) {
+      reply = *done;
+      reply.insert(QLatin1String("duplicate"), true);
     } else {
-      reply.insert(QLatin1String("error"), res.error);
+      const PrintJob job = parsePrintJob(payload);
+      const RenderResult res = renderAndPrint(job, outPdf);
+      reply.insert(QLatin1String("ok"), res.ok);
+      if (res.ok) {
+        reply.insert(QLatin1String("printer"), res.printer);
+        reply.insert(QLatin1String("method"), res.method);
+        reply.insert(QLatin1String("copies"), res.copies);
+        reply.insert(QLatin1String("renderMs"), res.renderMs);
+        reply.insert(QLatin1String("version"), QLatin1String(kHostVersion));
+        rememberJob(jobId, reply);
+      } else {
+        reply.insert(QLatin1String("error"), res.error);
+      }
     }
   } else {
     reply.insert(QLatin1String("ok"), false);
