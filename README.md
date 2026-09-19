@@ -7,6 +7,8 @@
 - **HTML 就是模板** — 无需转换私有格式，现有布局直接复用。
 - **扔掉专用设计器** — 用你最熟悉的 HTML/CSS 就够了，不必双份维护。
 - **打印即预览** — 锁定指定 DOM 节点（`page1` / `page2`… 或任意 `pageIds`）直接输出到纸张。
+- **C++ 原生引擎** — `native-host-cpp/`：QtWebKit 渲染内核 + QPrinter 直接出纸，
+  不依赖 Node.js / Python 中间层；92 KB 可执行文件，空闲 CPU 0%，内置 IP-Sentinel 毫秒级鉴权。
 - **套打现场调** — 上下左右按毫米偏移，**每台打印机单独记忆**，客户自助归位，开发不用改代码。
 
 API 对齐经典 **jatoolsPrinter / JCP**。Windows 一键安装包内置 Node 运行时 + 打印代理 + 扩展（另含 PDFtoPrinter），兼容 **Windows 7**。
@@ -93,11 +95,12 @@ git clone -b cursor/latest-printkit-6e43 https://github.com/frank0417/print.git
 ## 目录
 
 ```
-extension/       Chrome 扩展（Manifest V3）
-native-host/     Native Messaging 打印代理源码
-installer/       一键安装包构建脚本与 Win/Mac 安装程序
-demo/            演示页
-dist/            构建产物（gitignore）
+extension/        Chrome 扩展（Manifest V3）
+native-host-cpp/  C++ 原生打印引擎（QtWebKit + QPrinter，推荐）
+native-host/      Node 版打印代理（兼容保留）
+installer/        一键安装包构建脚本与 Win/Mac 安装程序
+demo/             演示页
+dist/             构建产物（gitignore）
 ```
 
 ## 从源码构建安装包
@@ -180,6 +183,17 @@ cd demo && python3 -m http.server 5173
 其它入口：`printKit` / `PrintKit` / `getJCP()`。演示页：`demo/index.html`、`demo/invoice.html`、`demo/ticket.html`。
 
 ## 静默打印链路
+
+C++ 引擎（推荐，见 `native-host-cpp/README.md`）：
+
+```
+页面 print(myDoc, false)
+  → 扩展 background
+    → Native Messaging: com.printkit.host（C++ 单进程）
+      → QtWebKit 渲染 → QPrinter 直接画到 GDI / CUPS
+```
+
+Node 版（兼容保留）：
 
 ```
 页面 print(myDoc, false)
