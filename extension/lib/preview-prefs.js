@@ -116,6 +116,7 @@ export function mergeWithSavedPrefs(jobSettings, overlay) {
   if (overlay.marginRight != null) out.marginRight = overlay.marginRight;
   if (overlay.marginBottom != null) out.marginBottom = overlay.marginBottom;
   if (overlay.marginLeft != null) out.marginLeft = overlay.marginLeft;
+  if (overlay.contentScale != null) out.contentScale = overlay.contentScale;
 
   return out;
 }

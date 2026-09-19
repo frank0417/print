@@ -6,6 +6,7 @@ import {
   classifyPrinterType,
   matchPinSheet,
   normalizePinSheetName,
+  pinContentMargins,
   pinUnprintable,
 } from '../lib/paper.js';
 import {
@@ -30,6 +31,7 @@ const els = {
   marginRight: document.getElementById('marginRight'),
   marginBottom: document.getElementById('marginBottom'),
   marginLeft: document.getElementById('marginLeft'),
+  contentScale: document.getElementById('contentScale'),
   btnPrint: document.getElementById('btnPrint'),
   btnClose: document.getElementById('btnClose'),
   btnSettings: document.getElementById('btnSettings'),
@@ -112,6 +114,7 @@ function readSettingsFromUi() {
     marginRight: Number(els.marginRight.value),
     marginBottom: Number(els.marginBottom.value),
     marginLeft: Number(els.marginLeft.value),
+    contentScale: normalizeContentScale(els.contentScale?.value),
     printer: els.printer?.value || '',
   };
   if (paperName === 'Custom') {
@@ -199,6 +202,9 @@ function applySettingsToUi(settings = {}) {
   els.marginRight.value = String(margins.right);
   els.marginBottom.value = String(margins.bottom);
   els.marginLeft.value = String(margins.left);
+  if (els.contentScale && settings.contentScale != null) {
+    els.contentScale.value = String(normalizeContentScale(settings.contentScale));
+  }
 }
 
 function mergedSettings(ui = readSettingsFromUi()) {
@@ -220,13 +226,27 @@ function ensurePrintStyle(settings) {
     document.head.appendChild(style);
   }
   const { width, height } = resolveSize(settings);
-  const m = normalizeMargins(settings);
+  const m = pinContentMargins(normalizeMargins(settings), pinZonesFor(settings, { width, height }));
   style.textContent = `
     @page {
       size: ${width}mm ${height}mm;
       margin: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm;
     }
   `;
+}
+
+/**
+ * Tractor/carriage zones for this render, or null. Only a pin printer on a
+ * 针式 sheet gets them — a laser feeding pre-cut 241×140 forms has no head
+ * limit (the host applies the same rule in resolvePaper()).
+ */
+function pinZonesFor(settings, size) {
+  const pinSheet =
+    normalizePinSheetName(settings.paperName) || matchPinSheet(size.width, size.height);
+  if (!pinSheet) return null;
+  const printer = settings.printer || settings.printerName || resolvedPrinterName();
+  if (resolvedPrinterType(printer) !== 'pin') return null;
+  return pinUnprintable(printer, size.width);
 }
 
 function statusLine(size) {
@@ -243,9 +263,10 @@ function renderJob() {
 
   els.stage.innerHTML = '';
 
-  const pinSheet =
-    normalizePinSheetName(settings.paperName) || matchPinSheet(size.width, size.height);
-  const zones = pinSheet ? pinUnprintable(settings.printer || settings.printerName, size.width) : null;
+  const zones = pinZonesFor(settings, size);
+  // Content sits inside the hatch; the user's margin is added on top of it.
+  const pad = pinContentMargins(margins, zones);
+  const contentScale = normalizeContentScale(settings.contentScale) / 100;
 
   for (const page of job.pages) {
     const sheet = document.createElement('section');
@@ -254,7 +275,7 @@ function renderJob() {
     sheet.style.height = `${size.height}mm`;
     sheet.style.minHeight = `${size.height}mm`;
     sheet.style.maxHeight = `${size.height}mm`;
-    sheet.style.padding = `${margins.top}mm ${margins.right}mm ${margins.bottom}mm ${margins.left}mm`;
+    sheet.style.padding = `${pad.top}mm ${pad.right}mm ${pad.bottom}mm ${pad.left}mm`;
 
     if (zones) {
       // Show the tractor strips + head limit so 预览 == 纸上: anything under
@@ -307,6 +328,7 @@ function renderJob() {
     }
     const wrap = document.createElement('div');
     wrap.className = 'pk-fit';
+    wrap.dataset.scale = String(contentScale);
     wrap.innerHTML = page.html;
     shadow.appendChild(wrap);
     sheet.appendChild(inner);
@@ -317,7 +339,7 @@ function renderJob() {
     const label = document.createElement('div');
     label.className = 'sheet-label no-print';
     label.textContent = zones
-      ? `${page.id || 'page'} · ${size.width}×${size.height}mm · 斜纹区（左 ${zones.left} / 右 ${zones.right}mm）针头打不到`
+      ? `${page.id || 'page'} · ${size.width}×${size.height}mm · 斜纹区（左 ${zones.left} / 右 ${zones.right}mm）针头打不到，边距从斜纹区内侧起算`
       : `${page.id || 'page'} · ${size.width}×${size.height}mm`;
     sheet.appendChild(label);
 
@@ -343,10 +365,18 @@ function renderJob() {
  */
 function fitContentWidth(el) {
   if (!el) return;
-  el.style.zoom = '1';
+  const base = Number(el.dataset.scale) || 1;
+  el.style.zoom = String(base);
   const cw = el.clientWidth;
   const sw = el.scrollWidth;
-  if (sw > cw + 1) el.style.zoom = String(cw / sw);
+  if (sw > cw + 1) el.style.zoom = String((base * cw) / sw);
+}
+
+/** User content scale in percent; 100 = the page's own CSS sizes. */
+function normalizeContentScale(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return 100;
+  return Math.min(200, Math.max(50, Math.round(n)));
 }
 
 /**
@@ -404,25 +434,14 @@ function currentPinZones() {
 }
 
 /**
- * Content under the tractor strip / past the carriage is lost on paper, so
- * left/right margins can never be smaller than those zones. Mirrors the host.
+ * Left/right margins on fanfold are offsets inside the hatch (see
+ * pinContentMargins), so 0 is valid and no minimum is imposed here.
  */
 function enforcePinMargins() {
-  const zones = currentPinZones();
-  let changed = false;
-  for (const [el, min] of [
-    [els.marginLeft, zones ? zones.left : 0],
-    [els.marginRight, zones ? zones.right : 0],
-  ]) {
-    if (!el) continue;
-    if (zones) el.min = String(min);
-    else el.removeAttribute('min');
-    if (zones && Number(el.value) < min) {
-      el.value = String(min);
-      changed = true;
-    }
+  for (const el of [els.marginLeft, els.marginRight]) {
+    if (el) el.removeAttribute('min');
   }
-  return changed;
+  return false;
 }
 
 function officePaperSelected() {
@@ -483,6 +502,7 @@ function bindUi() {
     els.marginRight,
     els.marginBottom,
     els.marginLeft,
+    els.contentScale,
   ]) {
     el?.addEventListener('change', () => {
       if (el === els.printer) {
@@ -553,8 +573,15 @@ function bindUi() {
       settings.marginRight = ui.marginRight;
       settings.marginBottom = ui.marginBottom;
       settings.marginLeft = ui.marginLeft;
+      settings.contentScale = ui.contentScale;
       delete settings.contentWidth;
       delete settings.contentHeight;
+      // "默认打印机" → send the real name so the host can route by driver
+      // (IPP/WSD vs pin) and verify the job instead of printing blind.
+      if (!settings.printer) {
+        const def = resolvedPrinterName();
+        if (def) settings.printer = def;
+      }
       const kind = resolvedPrinterType();
       if (kind) {
         settings.printerKind = kind;
@@ -650,6 +677,10 @@ async function loadPrinters() {
       els.printer.appendChild(opt);
     }
     if (current) els.printer.value = current;
+    const def = list.find((p) => p.isDefault);
+    if (def && els.printer.options[0]) {
+      els.printer.options[0].textContent = `默认打印机（${def.name}）`;
+    }
     syncTypeSelect();
     if (res?.hostAvailable === false) {
       els.printer.title = '未安装本地打印代理，点打印将打开安装说明';
@@ -710,8 +741,10 @@ async function boot() {
         els.printer.value = saved.printer || '';
       }
       syncTypeSelect();
-      const synced = syncPaperForPrinter();
-      if (enforcePinMargins() || synced) renderJob();
+      syncPaperForPrinter();
+      enforcePinMargins();
+      // Printer type is only known now and it decides the hatch offsets.
+      renderJob();
       persistUiPrefs();
       focusPrint();
     })

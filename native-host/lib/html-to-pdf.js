@@ -183,13 +183,15 @@ function resolvePaper(settings = {}) {
     bottom: num(settings.marginBottom, 0),
     left: num(settings.marginLeft, 0),
   };
-  // Fanfold: the pins cannot reach the tractor strips / beyond the carriage,
-  // so content there is simply lost. Keep margins at least that wide (the
-  // preview enforces the same minimums, so 预览 == 纸).
-  if (pinName && isPinSettings(settings)) {
+  // Fanfold on a pin printer: the head homes ~13mm in from the paper edge and
+  // an 80-column carriage covers 203.2mm, so content laid out under those
+  // zones is simply lost. The user's left/right margin is therefore measured
+  // from the inside of those zones (same rule as the preview's hatch), which
+  // keeps small margins meaningful without clipping either side.
+  if ((pinName || matchPinSheet(width, height)) && isPinSettings(settings)) {
     const zone = pinUnprintable(settings.printer || settings.printerName, width);
-    margins.left = Math.max(margins.left, zone.left);
-    margins.right = Math.max(margins.right, zone.right);
+    margins.left += zone.left;
+    margins.right += zone.right;
   }
   return { name, width, height, orientation, margins };
 }
@@ -269,8 +271,16 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
+/** Preview's 内容缩放 (%), 100 = the page's own CSS sizes. Mirrors preview.js. */
+function contentScale(settings) {
+  const n = Number(settings && settings.contentScale);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  return Math.min(200, Math.max(50, Math.round(n))) / 100;
+}
+
 function buildHtmlDocument({ title, pages, stylesheets, settings }) {
   const paper = resolvePaper(settings);
+  const scale = contentScale(settings);
   const styleTags = [];
   for (const sheet of stylesheets || []) {
     if (sheet.type === 'style' && sheet.css) {
@@ -344,6 +354,7 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
       width: 100%;
       margin: 0;
       transform: none;
+      zoom: ${scale};
     }
     img, canvas, svg {
       image-rendering: -webkit-optimize-contrast;
@@ -399,15 +410,17 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
 ${pageHtml}
 <script>
 // Fixed-width tables wider than the content box would be clipped; shrink
-// them (CSS zoom stays vector on GDI). Same rule runs in the preview.
+// them (CSS zoom stays vector on GDI). Same rule runs in the preview, on
+// top of the user's 内容缩放.
 (function () {
+  var base = ${scale};
   function fit() {
     var list = document.querySelectorAll('.pk-fit');
     for (var i = 0; i < list.length; i++) {
       var el = list[i];
-      el.style.zoom = '1';
+      el.style.zoom = String(base);
       var cw = el.clientWidth, sw = el.scrollWidth;
-      if (sw > cw + 1) el.style.zoom = String(cw / sw);
+      if (sw > cw + 1) el.style.zoom = String(base * cw / sw);
     }
   }
   fit();
@@ -470,6 +483,21 @@ async function htmlJobToPdf({ jobDir, title, pages, stylesheets, settings }) {
     }
   }
 
+  htmlFileToPdfSync(htmlPath, pdfPath);
+  return { pdfPath: pdfPath, htmlPath: htmlPath };
+}
+
+/**
+ * Headless `--print-to-pdf` of an already written HTML file. Synchronous so
+ * the Windows print fallbacks (which are all spawnSync based) can call it.
+ */
+function htmlFileToPdfSync(htmlPath, pdfPath) {
+  const chrome = resolveChromePath();
+  if (!chrome) {
+    throw new Error(
+      '未找到 Chrome/Edge。请安装 Google Chrome 或 Microsoft Edge，或设置环境变量 PRINTKIT_CHROME'
+    );
+  }
   const fileUrl =
     process.platform === 'win32'
       ? 'file:///' + htmlPath.replace(/\\/g, '/')
@@ -521,7 +549,7 @@ async function htmlJobToPdf({ jobDir, title, pages, stylesheets, settings }) {
       `HTML 转 PDF 失败: ${(r.stderr || r.stdout || `exit ${r.status}`).toString().trim()}`
     );
   }
-  return { pdfPath: pdfPath, htmlPath: htmlPath };
+  return pdfPath;
 }
 
 function readPdfPageSize(pdfPath) {
@@ -550,6 +578,7 @@ function isWideBox(width, height) {
 
 module.exports = {
   htmlJobToPdf,
+  htmlFileToPdfSync,
   buildHtmlDocument,
   resolveChromePath,
   resolvePaper,
