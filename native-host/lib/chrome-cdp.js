@@ -13,18 +13,69 @@ function resolvePaper(settings) {
   return require('./html-to-pdf').resolvePaper(settings);
 }
 
+const hygiene = require('./hygiene');
+
 const CDP_PORT = Number(process.env.PRINTKIT_CDP_PORT) || 19333;
 const PROFILE_DIR = path.join(os.tmpdir(), 'printkit-chrome-cdp');
+const META_PATH = path.join(os.tmpdir(), 'printkit-chrome-cdp.json');
+const MAX_JOBS_PER_CHROME = Number(process.env.PRINTKIT_CDP_MAX_JOBS) || 40;
+const MAX_AGE_MS = Number(process.env.PRINTKIT_CDP_MAX_AGE_MS) || 20 * 60 * 1000;
+const IDLE_MS = Number(process.env.PRINTKIT_CDP_IDLE_MS) || 10 * 60 * 1000;
+
+let chromeProc = null;
+let idleTimer = null;
 
 function log(...args) {
+  const line = `[${new Date().toISOString()}] cdp ${args
+    .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+    .join(' ')}\n`;
+  hygiene.appendLog(line);
+}
+
+function readMeta() {
   try {
-    const line = `[${new Date().toISOString()}] cdp ${args
-      .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
-      .join(' ')}\n`;
-    fs.appendFileSync(path.join(os.tmpdir(), 'printkit-host.log'), line);
+    return JSON.parse(fs.readFileSync(META_PATH, 'utf8')) || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function writeMeta(meta) {
+  try {
+    fs.writeFileSync(META_PATH, JSON.stringify(meta));
   } catch (_) {
     /* ignore */
   }
+}
+
+function bumpJobCount() {
+  const meta = readMeta();
+  meta.jobs = (Number(meta.jobs) || 0) + 1;
+  meta.lastJobAt = Date.now();
+  writeMeta(meta);
+  return meta;
+}
+
+function metaIsStale(meta) {
+  if (!meta || !meta.spawnedAt) return false;
+  if (Date.now() - Number(meta.spawnedAt) >= MAX_AGE_MS) return 'age';
+  if ((Number(meta.jobs) || 0) >= MAX_JOBS_PER_CHROME) return 'jobs';
+  return false;
+}
+
+function clearIdleTimer() {
+  if (idleTimer) {
+    clearTimeout(idleTimer);
+    idleTimer = null;
+  }
+}
+
+function scheduleIdleShutdown() {
+  clearIdleTimer();
+  idleTimer = setTimeout(() => {
+    shutdownHeadlessChrome('idle');
+  }, IDLE_MS);
+  if (idleTimer && typeof idleTimer.unref === 'function') idleTimer.unref();
 }
 
 function sleep(ms) {
@@ -53,8 +104,51 @@ async function isChromeUp() {
   }
 }
 
+function shutdownHeadlessChrome(reason) {
+  clearIdleTimer();
+  const meta = readMeta();
+  const pid = (chromeProc && chromeProc.pid) || meta.pid;
+  log('shutdown headless chrome', { reason: reason || 'unknown', pid: pid || null });
+  hygiene.killProcessTree(pid);
+  hygiene.killByUserDataDir(PROFILE_DIR);
+  chromeProc = null;
+  hygiene.pruneChromeCaches(PROFILE_DIR);
+  try {
+    fs.unlinkSync(META_PATH);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function recycleIfStale(reason) {
+  const meta = readMeta();
+  const why = metaIsStale(meta);
+  if (why) {
+    shutdownHeadlessChrome(reason || why);
+    return { recycled: true, reason: why };
+  }
+  // v0.5.29 left a detached Chrome with no meta file. Drop it once on upgrade
+  // so a bloated profile is not kept forever.
+  if (reason === 'host-start' && !meta.spawnedAt) {
+    try {
+      if (fs.existsSync(PROFILE_DIR)) {
+        shutdownHeadlessChrome('upgrade-no-meta');
+        return { recycled: true, reason: 'upgrade-no-meta' };
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  return { recycled: false };
+}
+
 async function ensureHeadlessChrome() {
-  if (await isChromeUp()) return { reused: true, port: CDP_PORT };
+  const recycled = recycleIfStale('ensure');
+  if (recycled.recycled) await sleep(250);
+  if (await isChromeUp()) {
+    scheduleIdleShutdown();
+    return { reused: true, port: CDP_PORT };
+  }
 
   const chrome = resolveChromePath();
   if (!chrome) {
@@ -89,13 +183,19 @@ async function ensureHeadlessChrome() {
     ],
     { detached: true, stdio: 'ignore', windowsHide: true }
   );
+  chromeProc = child;
   child.unref();
+  writeMeta({ pid: child.pid, spawnedAt: Date.now(), jobs: 0, lastJobAt: 0 });
   log('spawned headless chrome', { pid: child.pid, port: CDP_PORT });
 
   for (let i = 0; i < 80; i++) {
-    if (await isChromeUp()) return { reused: false, port: CDP_PORT };
+    if (await isChromeUp()) {
+      scheduleIdleShutdown();
+      return { reused: false, port: CDP_PORT };
+    }
     await sleep(100);
   }
+  shutdownHeadlessChrome('spawn-timeout');
   throw new Error('预热 Chrome 超时');
 }
 
@@ -254,6 +354,8 @@ async function htmlToPdfViaCdp({ htmlPath, pdfPath, settings }) {
     );
     if (!result || !result.data) throw new Error('Page.printToPDF 无数据');
     fs.writeFileSync(pdfPath, Buffer.from(result.data, 'base64'));
+    bumpJobCount();
+    scheduleIdleShutdown();
     return pdfPath;
   } finally {
     if (targetId) {
@@ -262,6 +364,24 @@ async function htmlToPdfViaCdp({ htmlPath, pdfPath, settings }) {
       } catch (_) {
         /* ignore */
       }
+    }
+    try {
+      if (cdp.ws && cdp.ws.readyState === 1) {
+        const listed = await cdp.send('Target.getTargets');
+        const leftovers = (listed && listed.targetInfos) || [];
+        for (const t of leftovers) {
+          const url = String((t && t.url) || '');
+          if (t && t.targetId && t.targetId !== targetId && /file:\/\//i.test(url)) {
+            try {
+              await cdp.send('Target.closeTarget', { targetId: t.targetId });
+            } catch (_) {
+              /* ignore */
+            }
+          }
+        }
+      }
+    } catch (_) {
+      /* ignore */
     }
     cdp.close();
   }
@@ -275,4 +395,6 @@ module.exports = {
   htmlToPdfViaCdp,
   prewarmChrome,
   ensureHeadlessChrome,
+  shutdownHeadlessChrome,
+  recycleIfStale,
 };

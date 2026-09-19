@@ -47,6 +47,21 @@ let typeOverrides = {};
 /** 'fit' | '100' | '150' | '200' — default 100% so preview stays sharp (no blurry downscale). */
 let zoomMode = '100';
 let saveTimer = 0;
+/**
+ * Opening the preview from an ERP page that used Enter (确认/打印) can
+ * deliver that same key to this popup and immediately submit 「打印」.
+ * Ignore keyboard/submit until the opener's key has settled, or the user clicks.
+ */
+const PRINT_GUARD_MS = 700;
+let printGuardUntil = Date.now() + PRINT_GUARD_MS;
+
+function keyboardPrintBlocked() {
+  return Date.now() < printGuardUntil;
+}
+
+function releasePrintGuard() {
+  printGuardUntil = 0;
+}
 
 function setStatus(text) {
   if (els.status) els.status.textContent = text;
@@ -493,6 +508,7 @@ function setZoomMode(mode) {
 }
 
 function bindUi() {
+  printGuardUntil = Date.now() + PRINT_GUARD_MS;
   for (const el of [
     els.paperName,
     els.orientation,
@@ -557,6 +573,7 @@ function bindUi() {
   async function doPrint() {
     closeSettings();
     if (printing) return;
+    if (keyboardPrintBlocked()) return;
     printing = true;
     if (els.btnPrint) els.btnPrint.disabled = true;
     try {
@@ -621,6 +638,7 @@ function bindUi() {
 
   document.getElementById('printForm')?.addEventListener('submit', (event) => {
     event.preventDefault();
+    if (keyboardPrintBlocked()) return;
     doPrint();
   });
 
@@ -628,11 +646,18 @@ function bindUi() {
   // quirks), the button click still prints.
   els.btnPrint?.addEventListener('click', (event) => {
     event.preventDefault();
+    // Keyboard activation (leftover Enter from the opener) has detail === 0.
+    if (event.detail === 0 && keyboardPrintBlocked()) return;
+    releasePrintGuard();
     doPrint();
   });
 
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' || event.isComposing || printing) return;
+    if (keyboardPrintBlocked()) {
+      event.preventDefault();
+      return;
+    }
     if (event.target === els.btnClose) return;
     if (event.target?.closest?.('#printForm')) return;
     event.preventDefault();
@@ -716,7 +741,13 @@ async function boot() {
   enforcePinMargins();
   renderJob();
   persistUiPrefs();
-  focusPrint();
+  try {
+    document.body.tabIndex = -1;
+    document.body.focus({ preventScroll: true });
+  } catch (_) {
+    /* ignore */
+  }
+  setTimeout(focusPrint, PRINT_GUARD_MS);
   if (window.ResizeObserver) {
     new ResizeObserver(() => fitSheets()).observe(els.stage);
   } else {
@@ -746,7 +777,7 @@ async function boot() {
       // Printer type is only known now and it decides the hatch offsets.
       renderJob();
       persistUiPrefs();
-      focusPrint();
+      if (!keyboardPrintBlocked()) focusPrint();
     })
     .catch(() => {});
 }

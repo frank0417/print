@@ -10,6 +10,8 @@ import {
   applyPrinterTypeOverride,
 } from '../lib/preview-prefs.js';
 
+/** Preview / install-guide windowId → jobId so closing the window drops HTML. */
+const previewWindows = new Map();
 const jobs = new Map();
 
 const HOST_NOT_INSTALLED = 'HOST_NOT_INSTALLED';
@@ -65,6 +67,9 @@ async function handleMessage(message, sender) {
       if (message.jobId) {
         jobs.delete(message.jobId);
         await removePersistedJob(message.jobId);
+        for (const [windowId, id] of previewWindows.entries()) {
+          if (id === message.jobId) previewWindows.delete(windowId);
+        }
       }
       return { ok: true };
     case 'PREWARM_HOST':
@@ -163,6 +168,7 @@ async function openInstallGuide({ reason, jobId } = {}) {
     height: 860,
     focused: true,
   });
+  if (win?.id != null && jobId) previewWindows.set(win.id, jobId);
 
   return { ok: true, windowId: win?.id ?? null };
 }
@@ -269,6 +275,7 @@ async function openPreviewJob(payload, sender) {
     height: 900,
     focused: true,
   });
+  if (win?.id != null) previewWindows.set(win.id, jobId);
 
   return {
     ok: true,
@@ -351,6 +358,16 @@ async function listPrintersWithStatus() {
   }
 }
 
+if (chrome.windows?.onRemoved) {
+  chrome.windows.onRemoved.addListener((windowId) => {
+    const jobId = previewWindows.get(windowId);
+    if (!jobId) return;
+    previewWindows.delete(windowId);
+    jobs.delete(jobId);
+    removePersistedJob(jobId);
+  });
+}
+
 setInterval(() => {
   const expireBefore = Date.now() - 30 * 60 * 1000;
   for (const [id, job] of jobs.entries()) {
@@ -358,5 +375,8 @@ setInterval(() => {
       jobs.delete(id);
       removePersistedJob(id);
     }
+  }
+  for (const [windowId, jobId] of previewWindows.entries()) {
+    if (!jobs.has(jobId)) previewWindows.delete(windowId);
   }
 }, 60_000);

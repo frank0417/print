@@ -18,14 +18,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 function logLine(msg) {
-  try {
-    fs.appendFileSync(
-      path.join(os.tmpdir(), 'printkit-host.log'),
-      '[' + new Date().toISOString() + '] ' + msg + '\n'
-    );
-  } catch (_) {
-    /* ignore */
-  }
+  require('./hygiene').appendLog('[' + new Date().toISOString() + '] ' + msg + '\n');
 }
 
 function findPdfium() {

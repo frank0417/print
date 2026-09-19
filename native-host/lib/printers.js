@@ -251,14 +251,8 @@ function resolveWinPrinterTarget(printer) {
 }
 
 function logPrint(msg) {
-  try {
-    fs.appendFileSync(
-      path.join(require('os').tmpdir(), 'printkit-host.log'),
-      '[' + new Date().toISOString() + '] ' + msg + '\n'
-    );
-  } catch (_) {
-    /* ignore */
-  }
+  const { appendLog } = require('./hygiene');
+  appendLog('[' + new Date().toISOString() + '] ' + msg + '\n');
 }
 
 /**
@@ -677,7 +671,9 @@ function prepareKioskPrintFile(filePath) {
   if (ext === '.html' || ext === '.htm') {
     let html = fs.readFileSync(abs, 'utf8');
     const inject =
-      '<script>(function(){function go(){try{window.focus();window.print();}catch(e){}' +
+      '<script>(function(){function go(){' +
+      'try{if(sessionStorage.getItem("printkitKiosk"))return;sessionStorage.setItem("printkitKiosk","1");}catch(e){}' +
+      'try{window.focus();window.print();}catch(e){}' +
       'setTimeout(function(){try{window.close();}catch(e){}},300);}' +
       'if(document.readyState==="complete")setTimeout(go,50);' +
       'else window.addEventListener("load",function(){setTimeout(go,50);});})();</script>';
@@ -698,7 +694,9 @@ function prepareKioskPrintFile(filePath) {
     '<embed src="' +
     pdfUrl +
     '" type="application/pdf" />' +
-    '<script>(function(){function go(){try{window.focus();window.print();}catch(e){}' +
+    '<script>(function(){function go(){' +
+    'try{if(sessionStorage.getItem("printkitKiosk"))return;sessionStorage.setItem("printkitKiosk","1");}catch(e){}' +
+    'try{window.focus();window.print();}catch(e){}' +
     'setTimeout(function(){try{window.close();}catch(e){}},400);}' +
     'setTimeout(go,400);})();</script></body></html>';
   fs.writeFileSync(outPath, wrap, 'utf8');
@@ -766,6 +764,11 @@ function seedChromePrintProfile(profileDir, opts) {
   fs.writeFileSync(path.join(defDir, 'Preferences'), JSON.stringify(prefs));
   try {
     fs.writeFileSync(path.join(profileDir, 'First Run'), '');
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    require('./hygiene').resetChromeSession(profileDir);
   } catch (_) {
     /* ignore */
   }
@@ -1093,10 +1096,23 @@ function printWithChromeKiosk(filePath, target, copies, settings, opts) {
 
   // Reuse one profile across jobs — cold Chrome + fresh user-data-dir is ~3–8s.
   const profileDir = path.join(os.tmpdir(), 'printkit-chrome-kiosk');
+  const pidPath = path.join(os.tmpdir(), 'printkit-chrome-kiosk.pid');
   try {
     fs.mkdirSync(profileDir, { recursive: true });
   } catch (_) {
     /* ignore */
+  }
+
+  // Previous job taskkill'd Chrome (crash). Drop restore + leftover process
+  // or the next launch reprints the last HTML via --kiosk-printing.
+  try {
+    const prevPid = parseInt(fs.readFileSync(pidPath, 'utf8'), 10);
+    if (prevPid) require('./hygiene').killProcessTree(prevPid);
+  } catch (_) {
+    /* ignore */
+  }
+  if (require('./hygiene').chromeLockPresent(profileDir)) {
+    require('./hygiene').killByUserDataDir(profileDir);
   }
 
   const paper = require('./html-to-pdf').resolvePaper(settings || {});
@@ -1125,6 +1141,7 @@ function printWithChromeKiosk(filePath, target, copies, settings, opts) {
         '--disable-popup-blocking',
         '--disable-session-crashed-bubble',
         '--disable-infobars',
+        '--disable-restore-session-state',
         '--disable-background-networking',
         '--disable-sync',
         '--disable-translate',
@@ -1147,6 +1164,11 @@ function printWithChromeKiosk(filePath, target, copies, settings, opts) {
         stdio: 'ignore',
         detached: false,
       });
+      try {
+        if (child.pid) fs.writeFileSync(pidPath, String(child.pid));
+      } catch (_) {
+        /* ignore */
+      }
       let childErr = null;
       child.on('error', function (err) {
         childErr = err;
@@ -1161,6 +1183,11 @@ function printWithChromeKiosk(filePath, target, copies, settings, opts) {
       // rather than waiting for the browser to quit on its own (~5–15s).
       if (landed) waitWinSpoolSettled(spoolPrinter, 20000);
       killProcessTree(child.pid);
+      try {
+        fs.unlinkSync(pidPath);
+      } catch (_) {
+        /* ignore */
+      }
       try {
         child.unref();
       } catch (_) {
