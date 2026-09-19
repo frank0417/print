@@ -1,9 +1,15 @@
-# PrintKit · Chrome 打印扩展（对齐 jatoolsPrinter）
+# PrintKit · DIV ID 映射打印
 
-当前最新版：**v0.5.30**（可远程/一键升级）
+当前最新版：**v0.6.0**（可远程/一键升级）
 
-用 Chrome 扩展实现网页精确打印，API 对齐经典 **jatoolsPrinter / JCP**。  
-Windows 一键安装包内置 Node 运行时 + 打印代理 + 扩展（另含 PDFtoPrinter），兼容 **Windows 7**。
+独创 **DIV ID 映射打印**：页面长什么样，纸上就是什么样。
+
+- **HTML 就是模板** — 无需转换私有格式，现有布局直接复用。
+- **扔掉专用设计器** — 用你最熟悉的 HTML/CSS 就够了，不必双份维护。
+- **打印即预览** — 锁定指定 DOM 节点（`page1` / `page2`… 或任意 `pageIds`）直接输出到纸张。
+- **套打现场调** — 上下左右按毫米偏移，**每台打印机单独记忆**，客户自助归位，开发不用改代码。
+
+API 对齐经典 **jatoolsPrinter / JCP**。Windows 一键安装包内置 Node 运行时 + 打印代理 + 扩展（另含 PDFtoPrinter），兼容 **Windows 7**。
 
 ## 安装最新版（Windows）
 
@@ -75,8 +81,11 @@ git clone -b cursor/latest-printkit-6e43 https://github.com/frank0417/print.git
 | `jatoolsPrinter.printPreview(myDoc)` | ✅ | 打开预览窗；点「打印」走本地代理 |
 | `jatoolsPrinter.print(myDoc, true)` | ✅ | 打开预览窗；点「打印」走本地代理 |
 | `jatoolsPrinter.print(myDoc, false)` | ✅ | **本地代理静默打印**；未安装则弹出安装说明 |
-| DIV ID 映射分页 `page1`… | ✅ | 支持 `page_div_prefix` |
-| 纸张 / 方向 / 边距 / 份数 | ✅ | `settings` + 预览工具栏 |
+| **DIV ID 映射** `page1`… | ✅ | 连续 id、`page_div_prefix`、显式 `pageIds` |
+| `listMappedPages()` | ✅ | 打印前自检映射到了哪些 DIV |
+| 纸张 / 方向 / 边距 / 份数 | ✅ | 预览工具栏 +「纸张设置」对话框 |
+| 套打偏移 `offsetX/Y` | ✅ | 毫米级，按打印机记忆，调整即时预览 |
+| 套打底图 | ✅ | 预览对齐用（默认不出纸） |
 | `settings.printer` | ✅ | 指定打印机名称（需 native-host） |
 | `getPrinters()` | ✅ | 经本地代理枚举；未安装会提示安装 |
 | `getHostStatus()` / `openInstallGuide()` | ✅ | 探测代理 / 打开安装说明 |
@@ -134,14 +143,16 @@ cd demo && python3 -m http.server 5173
 ## 业务页接入
 
 ```html
-<div id="page1">第一页</div>
-<div id="page2">第二页</div>
+<div id="page1">第一页 · 发票联</div>
+<div id="page2">第二页 · 副本</div>
 
 <script>
   async function silentPrint() {
     const printers = await jatoolsPrinter.getPrinters();
     const myDoc = {
-      documents: document,
+      documents: document,          // 从当前文档按 DIV ID 映射
+      // page_div_prefix: 'so_',    // 可选：映射 so_page1, so_page2
+      // pageIds: ['header','body'],// 可选：任意节点 id 列表
       copyrights: 'your-company',
       settings: {
         paperName: 'A4',
@@ -151,20 +162,22 @@ cd demo && python3 -m http.server 5173
         marginBottom: 10,
         marginLeft: 10,
         copies: 1,
-        printer: printers[0]?.name // 可选；省略则用系统默认打印机
+        printer: printers[0]?.name, // 省略则用系统默认；套打偏移按此名称记忆
+        offsetX: 0,                 // 毫米，向右为正（也可在预览窗现场调）
+        offsetY: 0                  // 毫米，向下为正
       },
       done(err, result) {
         console.log(err || result);
       }
     };
 
-    // false = 静默（走本地代理）
-    await jatoolsPrinter.print(myDoc, false);
+    console.log('映射到', jatoolsPrinter.listMappedPages(myDoc));
+    await jatoolsPrinter.print(myDoc, false); // false = 静默
   }
 </script>
 ```
 
-其它入口：`printKit` / `PrintKit` / `getJCP()`。
+其它入口：`printKit` / `PrintKit` / `getJCP()`。演示页：`demo/index.html`、`demo/invoice.html`、`demo/ticket.html`。
 
 ## 静默打印链路
 

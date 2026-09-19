@@ -8,6 +8,8 @@ import {
   mergeWithSavedPrefs,
   loadPrinterTypeOverrides,
   applyPrinterTypeOverride,
+  loadPrinterOffsets,
+  applyPrinterOffset,
 } from '../lib/preview-prefs.js';
 
 /** Preview / install-guide windowId → jobId so closing the window drops HTML. */
@@ -225,8 +227,11 @@ async function silentPrintViaNative(payload, opts = {}) {
   }
   const overrides = await loadPrinterTypeOverrides();
   settings = applyPrinterTypeOverride(settings, overrides);
+  const offsets = await loadPrinterOffsets();
+  settings = applyPrinterOffset(settings, offsets);
   delete settings.zoomMode;
   delete settings.savedAt;
+  if (!settings.printBackground) delete settings.backgroundImage;
   const body = {
     title: payload.title,
     settings,
