@@ -114,6 +114,29 @@ check('pruneChromeCaches drops GPU/code caches but keeps the profile dir', funct
   hygiene.rmRecursive(dir);
 });
 
+check('resetChromeSession drops tab-restore files', function () {
+  var dir = mkTmp();
+  var def = path.join(dir, 'Default');
+  fs.mkdirSync(path.join(def, 'Sessions'), { recursive: true });
+  fs.writeFileSync(path.join(def, 'Last Session'), 'old');
+  fs.writeFileSync(path.join(def, 'Current Tabs'), 'tabs');
+  fs.writeFileSync(path.join(def, 'Preferences'), '{}');
+  hygiene.resetChromeSession(dir);
+  assert.strictEqual(fs.existsSync(path.join(def, 'Last Session')), false);
+  assert.strictEqual(fs.existsSync(path.join(def, 'Current Tabs')), false);
+  assert.strictEqual(fs.existsSync(path.join(def, 'Sessions')), false);
+  assert.strictEqual(fs.existsSync(path.join(def, 'Preferences')), true);
+  hygiene.rmRecursive(dir);
+});
+
+check('chromeLockPresent sees lockfile', function () {
+  var dir = mkTmp();
+  assert.strictEqual(hygiene.chromeLockPresent(dir), false);
+  fs.writeFileSync(path.join(dir, 'lockfile'), '');
+  assert.strictEqual(hygiene.chromeLockPresent(dir), true);
+  hygiene.rmRecursive(dir);
+});
+
 if (failures) {
   console.log(failures + ' failed');
   process.exit(1);

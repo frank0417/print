@@ -657,7 +657,9 @@ function prepareKioskPrintFile(filePath) {
   if (ext === '.html' || ext === '.htm') {
     let html = fs.readFileSync(abs, 'utf8');
     const inject =
-      '<script>(function(){function go(){try{window.focus();window.print();}catch(e){}' +
+      '<script>(function(){function go(){' +
+      'try{if(sessionStorage.getItem("printkitKiosk"))return;sessionStorage.setItem("printkitKiosk","1");}catch(e){}' +
+      'try{window.focus();window.print();}catch(e){}' +
       'setTimeout(function(){try{window.close();}catch(e){}},300);}' +
       'if(document.readyState==="complete")setTimeout(go,50);' +
       'else window.addEventListener("load",function(){setTimeout(go,50);});})();</script>';
@@ -678,7 +680,9 @@ function prepareKioskPrintFile(filePath) {
     '<embed src="' +
     pdfUrl +
     '" type="application/pdf" />' +
-    '<script>(function(){function go(){try{window.focus();window.print();}catch(e){}' +
+    '<script>(function(){function go(){' +
+    'try{if(sessionStorage.getItem("printkitKiosk"))return;sessionStorage.setItem("printkitKiosk","1");}catch(e){}' +
+    'try{window.focus();window.print();}catch(e){}' +
     'setTimeout(function(){try{window.close();}catch(e){}},400);}' +
     'setTimeout(go,400);})();</script></body></html>';
   fs.writeFileSync(outPath, wrap, 'utf8');
@@ -746,6 +750,11 @@ function seedChromePrintProfile(profileDir, opts) {
   fs.writeFileSync(path.join(defDir, 'Preferences'), JSON.stringify(prefs));
   try {
     fs.writeFileSync(path.join(profileDir, 'First Run'), '');
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    require('./hygiene').resetChromeSession(profileDir);
   } catch (_) {
     /* ignore */
   }
@@ -1017,10 +1026,23 @@ function printWithChromeKiosk(filePath, target, copies, settings) {
 
   // Reuse one profile across jobs — cold Chrome + fresh user-data-dir is ~3–8s.
   const profileDir = path.join(os.tmpdir(), 'printkit-chrome-kiosk');
+  const pidPath = path.join(os.tmpdir(), 'printkit-chrome-kiosk.pid');
   try {
     fs.mkdirSync(profileDir, { recursive: true });
   } catch (_) {
     /* ignore */
+  }
+
+  // Previous job taskkill'd Chrome (crash). Drop restore + leftover process
+  // or the next launch reprints the last HTML via --kiosk-printing.
+  try {
+    const prevPid = parseInt(fs.readFileSync(pidPath, 'utf8'), 10);
+    if (prevPid) require('./hygiene').killProcessTree(prevPid);
+  } catch (_) {
+    /* ignore */
+  }
+  if (require('./hygiene').chromeLockPresent(profileDir)) {
+    require('./hygiene').killByUserDataDir(profileDir);
   }
 
   const paper = require('./html-to-pdf').resolvePaper(settings || {});
@@ -1049,6 +1071,7 @@ function printWithChromeKiosk(filePath, target, copies, settings) {
         '--disable-popup-blocking',
         '--disable-session-crashed-bubble',
         '--disable-infobars',
+        '--disable-restore-session-state',
         '--disable-background-networking',
         '--disable-sync',
         '--disable-translate',
@@ -1071,6 +1094,11 @@ function printWithChromeKiosk(filePath, target, copies, settings) {
         stdio: 'ignore',
         detached: false,
       });
+      try {
+        if (child.pid) fs.writeFileSync(pidPath, String(child.pid));
+      } catch (_) {
+        /* ignore */
+      }
       let childErr = null;
       child.on('error', function (err) {
         childErr = err;
@@ -1082,6 +1110,11 @@ function printWithChromeKiosk(filePath, target, copies, settings) {
       }
       // Job is in the spooler (or we timed out) — don't wait for Chrome to quit.
       killProcessTree(child.pid);
+      try {
+        fs.unlinkSync(pidPath);
+      } catch (_) {
+        /* ignore */
+      }
       try {
         child.unref();
       } catch (_) {

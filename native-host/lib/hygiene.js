@@ -214,6 +214,41 @@ function pruneChromeCaches(profileDir) {
   }
 }
 
+/**
+ * Drop tab-restore files so the next --kiosk-printing launch does not
+ * reopen the previous job HTML and window.print() it again.
+ * (We taskkill kiosk Chrome after each job, which Chrome treats as a crash.)
+ */
+function resetChromeSession(profileDir) {
+  if (!profileDir) return;
+  var def = path.join(profileDir, 'Default');
+  var files = [
+    'Current Session',
+    'Current Tabs',
+    'Last Session',
+    'Last Tabs',
+    'Visited Links',
+  ];
+  for (var i = 0; i < files.length; i++) {
+    rmRecursive(path.join(def, files[i]));
+  }
+  rmRecursive(path.join(def, 'Sessions'));
+  rmRecursive(path.join(profileDir, 'Crashpad'));
+}
+
+function chromeLockPresent(profileDir) {
+  if (!profileDir) return false;
+  var names = ['lockfile', 'SingletonLock', 'SingletonSocket', 'SingletonCookie'];
+  for (var i = 0; i < names.length; i++) {
+    try {
+      if (fs.existsSync(path.join(profileDir, names[i]))) return true;
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  return false;
+}
+
 module.exports = {
   LOG_PATH: LOG_PATH,
   LOG_MAX_BYTES: LOG_MAX_BYTES,
@@ -228,5 +263,7 @@ module.exports = {
   killByUserDataDir: killByUserDataDir,
   chromeProfilePath: chromeProfilePath,
   pruneChromeCaches: pruneChromeCaches,
+  resetChromeSession: resetChromeSession,
+  chromeLockPresent: chromeLockPresent,
   CHROME_PROFILE_DIRS: CHROME_PROFILE_DIRS,
 };
