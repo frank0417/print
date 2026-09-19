@@ -4,6 +4,7 @@
 #include <QEventLoop>
 #include <QPageLayout>
 #include <QPageSize>
+#include <QPainter>
 #include <QPrinter>
 #include <QPrinterInfo>
 #include <QTimer>
@@ -87,7 +88,7 @@ RenderResult renderAndPrint(const PrintJob& job, const QString& pdfOutPath) {
       printer.setPrinterName(def.printerName());
       out.printer = def.printerName();
     }
-    out.method = QStringLiteral("qtwebkit-qprinter");
+    out.method = QStringLiteral("qtwebkit-qpainter");
   }
 
   QPageLayout layout(QPageSize(QSizeF(shortMm, longMm), QPageSize::Millimeter,
@@ -111,17 +112,56 @@ RenderResult renderAndPrint(const PrintJob& job, const QString& pdfOutPath) {
   page.settings()->setAttribute(QWebSettings::JavascriptEnabled, false);
   page.settings()->setAttribute(QWebSettings::PrintElementBackgrounds, true);
   page.settings()->setAttribute(QWebSettings::AutoLoadImages, true);
-  // Layout viewport = page box at 96 css-px/inch so mm in CSS == mm on paper.
-  const QSize viewportPx(qRound(paper.widthMm / 25.4 * 96.0),
-                         qRound(paper.heightMm / 25.4 * 96.0));
-  page.setViewportSize(viewportPx);
+  page.mainFrame()->setScrollBarPolicy(Qt::Horizontal, Qt::ScrollBarAlwaysOff);
+  page.mainFrame()->setScrollBarPolicy(Qt::Vertical, Qt::ScrollBarAlwaysOff);
+
+  // Layout in CSS reference px (96/in), one .pk-page per sheet stacked
+  // vertically. htmldoc emits page geometry in the same px, so layout is
+  // identical on every platform regardless of screen/printer DPI.
+  const int nPages = static_cast<int>(job.pages.size());
+  const int pageWpx = qRound(paper.widthMm * 96.0 / 25.4);
+  const int pageHpx = qRound(paper.heightMm * 96.0 / 25.4);
+  page.setViewportSize(QSize(pageWpx, pageHpx * nPages));
 
   if (!waitForLoad(page, QString::fromUtf8(html.c_str()))) {
     out.error = QStringLiteral("HTML 渲染失败或超时");
     return out;
   }
 
-  page.mainFrame()->print(&printer);
+  // Paint each sheet ourselves instead of QWebFrame::print(): we control the
+  // css-px → device-px transform explicitly, so no engine DPI heuristic can
+  // rescale the output (预览与出纸差一个像素都算我们输).
+  QPainter painter;
+  if (!painter.begin(&printer)) {
+    out.error = QStringLiteral("无法打开打印设备: %1").arg(out.printer);
+    return out;
+  }
+  painter.setRenderHint(QPainter::Antialiasing, true);
+  painter.setRenderHint(QPainter::TextAntialiasing, true);
+  painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+
+  const QRectF deviceRect = printer.pageRect(QPrinter::DevicePixel);
+  const qreal scaleToDevice = deviceRect.width() / static_cast<qreal>(pageWpx);
+  // Drivers that cannot do copies in hardware get manual repeats (PDF: never).
+  const int repeats =
+      (pdfOutPath.isEmpty() && !printer.supportsMultipleCopies())
+          ? std::max(1, job.settings.copies)
+          : 1;
+
+  bool firstSheet = true;
+  for (int copy = 0; copy < repeats; ++copy) {
+    for (int i = 0; i < nPages; ++i) {
+      if (!firstSheet) printer.newPage();
+      firstSheet = false;
+      painter.save();
+      painter.scale(scaleToDevice, scaleToDevice);
+      painter.translate(0, -static_cast<qreal>(i) * pageHpx);
+      page.mainFrame()->render(&painter,
+                               QRegion(0, i * pageHpx, pageWpx, pageHpx));
+      painter.restore();
+    }
+  }
+  painter.end();
 
   // Release decoded images / fonts / parsed sheets before the next job.
   QWebSettings::clearMemoryCaches();

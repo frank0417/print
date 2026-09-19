@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "actions.h"
+#include "htmldoc.h"
 #include "job.h"
 #include "protocol.h"
 #include "render.h"
@@ -56,6 +57,34 @@ int runCli(const std::vector<std::string>& args) {
   if (cmd == "getPrinters") {
     const QJsonDocument doc(listPrinters());
     std::puts(doc.toJson(QJsonDocument::Indented).constData());
+    return 0;
+  }
+  if (cmd == "compose") {
+    // Dump the composed print document (exact bytes both engines render):
+    //   printkit-host --cli compose job.json out.html
+    if (args.size() < 3) {
+      std::fprintf(stderr, "usage: printkit-host --cli compose job.json out.html\n");
+      return 2;
+    }
+    QFile in(QString::fromStdString(args[1]));
+    if (!in.open(QIODevice::ReadOnly)) {
+      std::fprintf(stderr, "cannot read %s\n", args[1].c_str());
+      return 2;
+    }
+    const QJsonDocument doc = QJsonDocument::fromJson(in.readAll());
+    const QJsonObject rootObj = doc.object();
+    const PrintJob job = parsePrintJob(rootObj.value(QLatin1String("payload")).isObject()
+                                           ? rootObj.value(QLatin1String("payload")).toObject()
+                                           : rootObj);
+    const std::string html = buildHtmlDocument(job.title.toStdString(), job.pages,
+                                               job.stylesheets, job.settings);
+    QFile outFile(QString::fromStdString(args[2]));
+    if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+      std::fprintf(stderr, "cannot write %s\n", args[2].c_str());
+      return 2;
+    }
+    outFile.write(html.data(), static_cast<qint64>(html.size()));
+    std::printf("composed %zu bytes -> %s\n", html.size(), args[2].c_str());
     return 0;
   }
   if (cmd == "print") {

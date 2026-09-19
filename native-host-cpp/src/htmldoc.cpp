@@ -1,8 +1,20 @@
 #include "htmldoc.h"
 
+#include <cmath>
 #include <sstream>
 
 namespace printkit {
+
+namespace {
+
+// CSS reference pixel: exactly 96 px/inch, independent of any platform DPI.
+// Emitting page geometry in px (converted here) instead of mm keeps the
+// engine's own mm↔px mapping out of the pipeline — the #1 cause of 跑版.
+double mmToPx(double mm) {
+  return std::round(mm * 96.0 / 25.4 * 100.0) / 100.0;
+}
+
+}  // namespace
 
 std::string escapeHtml(const std::string& in) {
   std::string out;
@@ -52,11 +64,11 @@ std::string buildHtmlDocument(const std::string& title,
       << "html, body { margin: 0; padding: 0; background: #fff; color: #000;\n"
       << "  -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }\n"
       << ".pk-page {\n"
-      << "  width: " << paper.widthMm << "mm;\n"
-      << "  height: " << paper.heightMm << "mm;\n"
+      << "  width: " << mmToPx(paper.widthMm) << "px;\n"
+      << "  height: " << mmToPx(paper.heightMm) << "px;\n"
       << "  box-sizing: border-box;\n"
-      << "  padding: " << m.top << "mm " << m.right << "mm " << m.bottom << "mm " << m.left
-      << "mm;\n"
+      << "  padding: " << mmToPx(m.top) << "px " << mmToPx(m.right) << "px " << mmToPx(m.bottom)
+      << "px " << mmToPx(m.left) << "px;\n"
       << "  overflow: hidden;\n"
       << "  page-break-after: always;\n"
       << "  position: relative;\n"
@@ -67,8 +79,8 @@ std::string buildHtmlDocument(const std::string& title,
       << ".pk-fit {\n"
       << "  width: 100%;\n"
       << "  margin: 0;\n"
-      << "  -webkit-transform: translate(" << off.x << "mm, " << off.y << "mm);\n"
-      << "  transform: translate(" << off.x << "mm, " << off.y << "mm);\n"
+      << "  -webkit-transform: translate(" << mmToPx(off.x) << "px, " << mmToPx(off.y) << "px);\n"
+      << "  transform: translate(" << mmToPx(off.x) << "px, " << mmToPx(off.y) << "px);\n"
       << "  zoom: " << scale << ";\n"
       << "}\n"
       << "img, canvas, svg { max-width: 100%; }\n"

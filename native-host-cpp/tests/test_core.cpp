@@ -118,8 +118,14 @@ static void testHtmlDoc() {
 
   const std::string html = buildHtmlDocument("发票", pages, sheets, s);
   CHECK("landscape A5 page box", html.find("size: 210mm 148mm") != std::string::npos);
-  CHECK("margins applied as padding", html.find("padding: 5mm 5mm 5mm 5mm") != std::string::npos);
-  CHECK("mm offset translate", html.find("translate(1.5mm, -0.8mm)") != std::string::npos);
+  // Page geometry is emitted in CSS reference px (96/in) so the engine's own
+  // mm↔px DPI mapping can never rescale the sheet. 210mm → 793.7px.
+  CHECK("page box in css px", html.find("width: 793.7px") != std::string::npos &&
+                                  html.find("height: 559.37px") != std::string::npos);
+  CHECK("margins applied as padding (px)",
+        html.find("padding: 18.9px 18.9px 18.9px 18.9px") != std::string::npos);
+  CHECK("mm offset translate (px)",
+        html.find("translate(5.67px, -3.02px)") != std::string::npos);
   CHECK("both mapped pages present", html.find("data-map=\"page1\"") != std::string::npos &&
                                          html.find("data-map=\"page2\"") != std::string::npos);
   CHECK("inline stylesheet included", html.find(".x{color:#000}") != std::string::npos);

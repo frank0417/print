@@ -27,6 +27,18 @@ QPrinter → Windows GDI / macOS·Linux CUPS（或 PDF 文件）
 （`@page` 尺寸 / 边距 padding / mm 偏移 translate / 内容缩放 zoom），
 `tests/test_core.cpp` 与扩展侧单测互为镜像。
 
+两条硬规则保证几何不跑版：
+
+1. 组装 HTML 的页面几何全部以 **CSS 参考像素**（96/in）显式给出，
+   引擎自己的 mm↔px DPI 映射（跑版第一元凶）被排除在链路外；
+2. 出纸不走 `QWebFrame::print()` 的内部缩放启发式，而是 QPainter 手动
+   控制 css-px → 设备坐标的唯一缩放系数，逐页 `render()` 输出。
+
+Blink（预览）vs QtWebKit（出纸）同文档 A/B 实测：页面盒 1:1
+（两边都是 595×420 pt），表格线、标题、页脚坐标重合；残余像素差约 3%
+且全部来自两引擎的字体描边/抗锯齿风格，无位置偏移。
+`--cli compose job.json out.html` 可导出组装后的最终文档用于排查。
+
 ## 构建
 
 依赖 Qt 5.15 + QtWebKit 5.212（reborn）。
