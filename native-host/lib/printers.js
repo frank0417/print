@@ -338,10 +338,16 @@ function isIppWsdPrinter(meta) {
   return /IPP Class|WSD-|WSD |Internet Print|\bIPP\b/i.test(s);
 }
 
-/** After a silent send: if the spooler marked the job Error, that is a failed print. */
+/**
+ * After a silent send: if the spooler marked the job Error, that is a failed print.
+ * `watchMs`: keep polling that long while the job is still in the queue — the
+ * IPP class driver only flags Error once the port monitor gives up on the
+ * device (~10s after StartDoc), well after the job first appears.
+ */
 function assertWinPrintLanded(printer, opts) {
   if (process.platform !== 'win32' || !printer) return;
   const delayMs = opts && opts.delayMs != null ? Math.max(0, Number(opts.delayMs) || 0) : 200;
+  const watchMs = opts && opts.watchMs != null ? Math.max(0, Number(opts.watchMs) || 0) : 0;
   const n = String(printer).replace(/'/g, "''");
   const r = spawnSync(
     'powershell.exe',
@@ -355,18 +361,26 @@ function assertWinPrintLanded(printer, opts) {
         (delayMs > 0 ? 'Start-Sleep -Milliseconds ' + delayMs + ';' : '') +
         "$n='" +
         n +
-        "';$jobs=@(); try{$jobs=@(Get-WmiObject Win32_PrintJob | Where-Object { $_.Name -like ($n + ',*') })}catch{};" +
-        "$err=0; foreach($j in $jobs){ $st=[string]$j.JobStatus+' '+[string]$j.Status; $mask=0; try{$mask=[int]$j.StatusMask}catch{};" +
-        " if($st -match 'Error|Offline|Paper' -or ($mask -band 2)){ $err++; try{$j.Delete()}catch{} } };" +
+        "';$deadline=(Get-Date).AddMilliseconds(" +
+        watchMs +
+        ');' +
+        '$err=0;$jobs=@();' +
+        'do {' +
+        "  $jobs=@(); try{$jobs=@(Get-WmiObject Win32_PrintJob | Where-Object { $_.Name -like ($n + ',*') })}catch{};" +
+        "  $err=0; foreach($j in $jobs){ $st=[string]$j.JobStatus+' '+[string]$j.Status; $mask=0; try{$mask=[int]$j.StatusMask}catch{};" +
+        "    if($st -match 'Error|Offline|Paper' -or ($mask -band 2)){ $err++; try{$j.Delete()}catch{} } };" +
+        '  if($err -gt 0 -or $jobs.Count -eq 0){ break };' +
+        '  Start-Sleep -Milliseconds 400' +
+        '} while((Get-Date) -lt $deadline);' +
         "Write-Output ('JOBS|' + $jobs.Count + '|err=' + $err)",
     ],
-    { encoding: 'utf8', windowsHide: true, timeout: 10000, maxBuffer: 1024 * 1024 }
+    { encoding: 'utf8', windowsHide: true, timeout: watchMs + 10000, maxBuffer: 1024 * 1024 }
   );
   const out = String((r.stdout || '') + (r.stderr || '')).replace(/\s+/g, ' ').trim();
   logPrint('assert jobs printer=' + printer + ' ' + out.slice(0, 200));
   if (/err=[1-9]/.test(out)) {
     throw new Error(
-      '打印机任务失败（IPP/WSD 驱动把作业标成错误）。请确认 HP 已开机且同一网络；或在 Windows 设置里用打印机 IP 重新添加，不要用 WSD 自动发现。'
+      '打印机任务失败（IPP/WSD 驱动把作业标成错误）。请确认 HP 已开机且同一网络（网口通但网页/IPP 无响应时请重启打印机）；或在 Windows 设置里用打印机 IP 重新添加，不要用 WSD 自动发现。'
     );
   }
 }
@@ -601,7 +615,7 @@ function getDefaultPrinterNameWin() {
         '-Command',
         "(Get-WmiObject -Query \"SELECT * FROM Win32_Printer WHERE Default=$true\").Name",
       ],
-      { encoding: 'utf8', windowsHide: true }
+      { encoding: 'utf8', windowsHide: true, timeout: 8000 }
     );
     return (d.stdout || '').trim() || null;
   } catch (_) {
@@ -949,11 +963,17 @@ function countWinSpoolJobs(printer) {
   return Number.isFinite(nJobs) ? nJobs : 0;
 }
 
-function waitWinSpoolJob(printer, timeoutMs, baseline) {
+/**
+ * `chromePid`: once that process is gone (page closed without printing, or
+ * Chrome handed off to an already running instance) keep polling only a few
+ * more seconds instead of the full timeout.
+ */
+function waitWinSpoolJob(printer, timeoutMs, baseline, chromePid) {
   if (process.platform !== 'win32' || !printer) return false;
   const n = String(printer).replace(/'/g, "''");
   const base = Math.max(0, Number(baseline) || 0);
   const sec = Math.max(2, Math.ceil((timeoutMs || 12000) / 1000));
+  const cpid = Math.max(0, Number(chromePid) || 0);
   const r = spawnSync(
     'powershell.exe',
     [
@@ -966,14 +986,19 @@ function waitWinSpoolJob(printer, timeoutMs, baseline) {
         n +
         "';$base=" +
         base +
-        ';$deadline=(Get-Date).AddSeconds(' +
+        ';$cpid=' +
+        cpid +
+        ';$gone=$false;$deadline=(Get-Date).AddSeconds(' +
         sec +
         ');' +
         'while((Get-Date) -lt $deadline){' +
         "  $jobs=@(); try{$jobs=@(Get-WmiObject Win32_PrintJob | Where-Object { $_.Name -like ($n + ',*') })}catch{};" +
         "  if($jobs.Count -gt $base){ Write-Output ('LANDED|' + $jobs.Count); exit 0 };" +
+        '  if($cpid -gt 0 -and -not $gone -and -not (Get-Process -Id $cpid -ErrorAction SilentlyContinue)){' +
+        '    $gone=$true; $soon=(Get-Date).AddSeconds(5); if($soon -lt $deadline){$deadline=$soon}' +
+        '  };' +
         '  Start-Sleep -Milliseconds 180' +
-        '}; Write-Output TIMEOUT',
+        "}; if($gone){ Write-Output 'EXITED' } else { Write-Output 'TIMEOUT' }",
     ],
     {
       encoding: 'utf8',
@@ -985,6 +1010,47 @@ function waitWinSpoolJob(printer, timeoutMs, baseline) {
   const out = String((r.stdout || '') + (r.stderr || '')).replace(/\s+/g, ' ').trim();
   logPrint('wait spool printer=' + printer + ' ' + out.slice(0, 120));
   return /^LANDED\|/.test(out);
+}
+
+/**
+ * A job shows up in Win32_PrintJob at StartDoc, while Chrome is still
+ * writing pages (StatusMask 8 = SPOOLING). Killing Chrome at that moment
+ * truncates the spool file and the IPP driver flags the job Error. Wait for
+ * spooling to finish (or the job to leave the queue) before the kill.
+ */
+function waitWinSpoolSettled(printer, timeoutMs) {
+  if (process.platform !== 'win32' || !printer) return;
+  const n = String(printer).replace(/'/g, "''");
+  const sec = Math.max(2, Math.ceil((timeoutMs || 15000) / 1000));
+  const r = spawnSync(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      "$ErrorActionPreference='SilentlyContinue';$n='" +
+        n +
+        "';$deadline=(Get-Date).AddSeconds(" +
+        sec +
+        ');' +
+        'while((Get-Date) -lt $deadline){' +
+        "  $jobs=@(); try{$jobs=@(Get-WmiObject Win32_PrintJob | Where-Object { $_.Name -like ($n + ',*') })}catch{};" +
+        '  $spooling=0; foreach($j in $jobs){ $m=0; try{$m=[int]$j.StatusMask}catch{}; if($m -band 8){$spooling++} };' +
+        "  if($spooling -eq 0){ Write-Output ('SETTLED|' + $jobs.Count); exit 0 };" +
+        '  Start-Sleep -Milliseconds 150' +
+        '}; Write-Output STILL_SPOOLING',
+    ],
+    {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: (timeoutMs || 15000) + 3000,
+      maxBuffer: 1024 * 1024,
+    }
+  );
+  const out = String((r.stdout || '') + (r.stderr || '')).replace(/\s+/g, ' ').trim();
+  logPrint('spool settle printer=' + printer + ' ' + out.slice(0, 120));
 }
 
 function killProcessTree(pid) {
@@ -1011,7 +1077,11 @@ function killProcessTree(pid) {
  * Print via Chrome/Edge kiosk-printing at forced 100% scale.
  * Uses the printer driver directly (vector/text stays sharp), unlike Sumatra's bitmap path.
  */
-function printWithChromeKiosk(filePath, target, copies, settings) {
+function printWithChromeKiosk(filePath, target, copies, settings, opts) {
+  opts = opts || {};
+  // IPP/WSD class drivers fetch capabilities from the device before Chrome
+  // can even build the preview; a sleeping HP 111 took 41s in the log.
+  const waitMs = Math.max(5000, Number(opts.waitMs) || 20000);
   const chrome = require('./html-to-pdf').resolveChromePath();
   if (!chrome || !fs.existsSync(chrome)) {
     throw new Error('未找到 Chrome/Edge，无法高清打印');
@@ -1104,11 +1174,14 @@ function printWithChromeKiosk(filePath, target, copies, settings) {
         childErr = err;
       });
 
-      const landed = waitWinSpoolJob(spoolPrinter, 14000, baseline);
+      const t0 = Date.now();
+      const landed = waitWinSpoolJob(spoolPrinter, waitMs, baseline, child.pid);
       if (childErr) {
         throw new Error('Chrome 打印启动失败: ' + childErr.message);
       }
-      // Job is in the spooler (or we timed out) — don't wait for Chrome to quit.
+      // Job is in the spooler — let Chrome finish writing it, then kill it
+      // rather than waiting for the browser to quit on its own (~5–15s).
+      if (landed) waitWinSpoolSettled(spoolPrinter, 20000);
       killProcessTree(child.pid);
       try {
         fs.unlinkSync(pidPath);
@@ -1121,10 +1194,14 @@ function printWithChromeKiosk(filePath, target, copies, settings) {
         /* ignore */
       }
       if (!landed) {
-        // Chrome may have exited early with a dialog; fall back to a short
-        // sync run only when nothing hit the queue (rare).
-        logPrint('kiosk spool miss, chrome pid=' + child.pid);
-        throw new Error('Chrome 静默打印未进入队列（请确认默认打印机已指向目标机）');
+        logPrint('kiosk spool miss after ' + (Date.now() - t0) + 'ms, chrome pid=' + child.pid);
+        throw new Error(
+          'Chrome 静默打印 ' +
+            Math.round(waitMs / 1000) +
+            's 内未进入打印队列（打印机 "' +
+            (spoolPrinter || 'default') +
+            '" 无响应或正在唤醒，请确认已开机联网后重试）'
+        );
       }
     }
     return {
@@ -1144,10 +1221,21 @@ function printWithChromeKiosk(filePath, target, copies, settings) {
   }
 }
 
-function printPdfWin({ pdfPath, printer, copies, settings }) {
+function printPdfWin(job) {
+  let pdfPath = job.pdfPath;
+  const printer = job.printer;
+  const copies = job.copies;
+  const settings = job.settings;
   // Use the name from the preview dropdown as-is. Do not WMI-enumerate
   // printers here — that alone costs several seconds per job.
-  const target = resolveWinPrinterTarget(printer);
+  let target = resolveWinPrinterTarget(printer);
+  if (!target) {
+    // "默认打印机": resolve the real name up front, otherwise every guard
+    // below (IPP/WSD routing, queue recovery, job-error assert) bails on an
+    // empty name and an offline default laser silently swallows the job.
+    target = getDefaultPrinterNameWin();
+    logPrint('default printer resolved=' + (target || '(none)'));
+  }
   const errors = [];
 
   try {
@@ -1200,9 +1288,12 @@ function printPdfWin({ pdfPath, printer, copies, settings }) {
 
   function finish(result) {
     // Kiosk path already waited for the spooler job — skip the old 1.2s sleep.
+    // IPP/WSD: the Error flag shows up seconds after the job lands, so keep
+    // watching until the job leaves the queue (printed) or turns Error.
     if (!pin) {
       assertWinPrintLanded(target, {
         delayMs: result && result.spoolConfirmed ? 0 : 200,
+        watchMs: ipp ? 12000 : 0,
       });
     }
     return result;
@@ -1217,10 +1308,30 @@ function printPdfWin({ pdfPath, printer, copies, settings }) {
       if (!kioskFile || !fs.existsSync(kioskFile)) {
         throw new Error('没有可打印的 HTML/PDF');
       }
-      return finish(printWithChromeKiosk(kioskFile, target, copies, s));
+      return finish(
+        printWithChromeKiosk(kioskFile, target, copies, s, { waitMs: ipp ? 60000 : 20000 })
+      );
     } catch (err) {
       errors.push(err.message || String(err));
       logPrint('kiosk failed ' + (err.message || String(err)).slice(0, 200));
+    }
+  }
+
+  // html-only jobs (IPP/WSD skip headless PDF up front) reach here only when
+  // kiosk failed; the remaining paths all need a real PDF, so render it now.
+  if (!pdfPath || !fs.existsSync(pdfPath)) {
+    const htmlPath = s.htmlPath;
+    if (htmlPath && fs.existsSync(htmlPath)) {
+      try {
+        const out = path.join(path.dirname(htmlPath), 'job.pdf');
+        pdfPath = htmlToPdf.htmlFileToPdfSync(htmlPath, out);
+        logPrint('fallback pdf rendered ' + pdfPath);
+      } catch (err) {
+        errors.push(err.message || String(err));
+      }
+    }
+    if (!pdfPath || !fs.existsSync(pdfPath)) {
+      throw new Error(errors.filter(Boolean).join(' | ') || '没有可打印的 PDF');
     }
   }
 

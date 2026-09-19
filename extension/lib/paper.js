@@ -140,6 +140,21 @@ export function pinUnprintable(printerName, sheetWidthMm = 241) {
   return { left, right, strip: 12.7 };
 }
 
+/**
+ * On fanfold the user's left/right margin is measured from the edge of the
+ * reachable area (inside the hatch), not the paper edge — a 2mm margin means
+ * "2mm in from where the head can print", so nothing is ever clipped.
+ * Mirror of native-host/lib/html-to-pdf.js resolvePaper().
+ */
+export function pinContentMargins(margins, zones) {
+  if (!zones) return margins;
+  return {
+    ...margins,
+    left: Number(margins.left || 0) + zones.left,
+    right: Number(margins.right || 0) + zones.right,
+  };
+}
+
 export function resolvePaper(settings = {}) {
   const pinName = normalizePinSheetName(settings.paperName || settings.paper);
   const name = pinName || settings.paperName || settings.paper || 'A4';
