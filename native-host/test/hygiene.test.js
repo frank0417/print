@@ -118,14 +118,23 @@ check('resetChromeSession drops tab-restore files', function () {
   var dir = mkTmp();
   var def = path.join(dir, 'Default');
   fs.mkdirSync(path.join(def, 'Sessions'), { recursive: true });
+  fs.mkdirSync(path.join(def, 'Session Storage'), { recursive: true });
   fs.writeFileSync(path.join(def, 'Last Session'), 'old');
   fs.writeFileSync(path.join(def, 'Current Tabs'), 'tabs');
   fs.writeFileSync(path.join(def, 'Preferences'), '{}');
+  fs.writeFileSync(
+    path.join(dir, 'Local State'),
+    JSON.stringify({ profile: { exited_cleanly: false, exit_type: 'Crashed' } })
+  );
   hygiene.resetChromeSession(dir);
   assert.strictEqual(fs.existsSync(path.join(def, 'Last Session')), false);
   assert.strictEqual(fs.existsSync(path.join(def, 'Current Tabs')), false);
   assert.strictEqual(fs.existsSync(path.join(def, 'Sessions')), false);
+  assert.strictEqual(fs.existsSync(path.join(def, 'Session Storage')), false);
   assert.strictEqual(fs.existsSync(path.join(def, 'Preferences')), true);
+  var localState = JSON.parse(fs.readFileSync(path.join(dir, 'Local State'), 'utf8'));
+  assert.strictEqual(localState.profile.exited_cleanly, true);
+  assert.strictEqual(localState.profile.exit_type, 'Normal');
   hygiene.rmRecursive(dir);
 });
 

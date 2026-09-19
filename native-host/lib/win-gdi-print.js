@@ -90,6 +90,10 @@ $pd.DocumentName = 'PrintKit ' + [IO.Path]::GetFileNameWithoutExtension($Pdf)
 $pd.OriginAtMargins = $false
 $pd.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
 $pd.DefaultPageSettings.Landscape = $false
+# Driver DEVMODE can stick at Copies=2 after a long shift; we already loop
+# $Copies ourselves via $slots, so the spooler must send exactly one copy.
+$pd.PrinterSettings.Copies = 1
+$pd.PrinterSettings.Collate = $false
 if (-not [string]::IsNullOrEmpty($OutFile)) {
   $pd.PrinterSettings.PrintToFile = $true
   $pd.PrinterSettings.PrintFileName = $OutFile

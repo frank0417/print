@@ -674,7 +674,7 @@ function prepareKioskPrintFile(filePath) {
       '<script>(function(){function go(){' +
       'try{if(sessionStorage.getItem("printkitKiosk"))return;sessionStorage.setItem("printkitKiosk","1");}catch(e){}' +
       'try{window.focus();window.print();}catch(e){}' +
-      'setTimeout(function(){try{window.close();}catch(e){}},300);}' +
+      '}' +
       'if(document.readyState==="complete")setTimeout(go,50);' +
       'else window.addEventListener("load",function(){setTimeout(go,50);});})();</script>';
     if (/<\/body>/i.test(html)) {
@@ -697,7 +697,7 @@ function prepareKioskPrintFile(filePath) {
     '<script>(function(){function go(){' +
     'try{if(sessionStorage.getItem("printkitKiosk"))return;sessionStorage.setItem("printkitKiosk","1");}catch(e){}' +
     'try{window.focus();window.print();}catch(e){}' +
-    'setTimeout(function(){try{window.close();}catch(e){}},400);}' +
+    '}' +
     'setTimeout(go,400);})();</script></body></html>';
   fs.writeFileSync(outPath, wrap, 'utf8');
   return outPath;
@@ -755,6 +755,9 @@ function seedChromePrintProfile(profileDir, opts) {
     browser: {
       has_seen_welcome_page: true,
       check_default_browser: false,
+    },
+    session: {
+      restore_on_startup: 5,
     },
     profile: {
       exit_type: 'Normal',
@@ -1084,7 +1087,9 @@ function printWithChromeKiosk(filePath, target, copies, settings, opts) {
   const waitMs = Math.max(5000, Number(opts.waitMs) || 20000);
   const chrome = require('./html-to-pdf').resolveChromePath();
   if (!chrome || !fs.existsSync(chrome)) {
-    throw new Error('未找到 Chrome/Edge，无法高清打印');
+    const err = new Error('未找到 Chrome/Edge，无法高清打印');
+    err.code = 'KIOSK_NO_CHROME';
+    throw err;
   }
   const prevDefault = getDefaultPrinterNameWin();
   let changed = false;
@@ -1103,17 +1108,15 @@ function printWithChromeKiosk(filePath, target, copies, settings, opts) {
     /* ignore */
   }
 
-  // Previous job taskkill'd Chrome (crash). Drop restore + leftover process
-  // or the next launch reprints the last HTML via --kiosk-printing.
+  // Previous job taskkill'd Chrome (crash). Always kill leftovers — a stale
+  // process without a lockfile still restores last HTML and window.print()s it.
   try {
     const prevPid = parseInt(fs.readFileSync(pidPath, 'utf8'), 10);
     if (prevPid) require('./hygiene').killProcessTree(prevPid);
   } catch (_) {
     /* ignore */
   }
-  if (require('./hygiene').chromeLockPresent(profileDir)) {
-    require('./hygiene').killByUserDataDir(profileDir);
-  }
+  require('./hygiene').killByUserDataDir(profileDir);
 
   const paper = require('./html-to-pdf').resolvePaper(settings || {});
   const media = require('./html-to-pdf').printerMedia(paper);
@@ -1175,7 +1178,10 @@ function printWithChromeKiosk(filePath, target, copies, settings, opts) {
       });
 
       const t0 = Date.now();
-      const landed = waitWinSpoolJob(spoolPrinter, waitMs, baseline, child.pid);
+      // Do not pass chromePid: the page used to window.close() at 300ms, which
+      // made this wait collapse to 5s and miss slow IPP jobs — then the
+      // caller fell through to GDI and printed a second copy.
+      const landed = waitWinSpoolJob(spoolPrinter, waitMs, baseline);
       if (childErr) {
         throw new Error('Chrome 打印启动失败: ' + childErr.message);
       }
@@ -1314,6 +1320,11 @@ function printPdfWin(job) {
     } catch (err) {
       errors.push(err.message || String(err));
       logPrint('kiosk failed ' + (err.message || String(err)).slice(0, 200));
+      // Kiosk Chrome may already have sent the job even if WMI polling missed
+      // it. Falling through to GDI/Sumatra reprints the same ticket.
+      if (!err || err.code !== 'KIOSK_NO_CHROME') {
+        throw new Error(errors.filter(Boolean).join(' | '));
+      }
     }
   }
 
@@ -1340,6 +1351,12 @@ function printPdfWin(job) {
       return finish(tryGdi());
     } catch (err) {
       errors.push(err.message || String(err));
+      logPrint('gdi failed ' + (err.message || String(err)).slice(0, 200));
+      // Pin GDI often already queued the job before PowerShell times out or
+      // the driver returns an error. Sumatra/PDFtoPrinter would reprint it.
+      if (pin) {
+        throw new Error(errors.filter(Boolean).join(' | '));
+      }
     }
   }
 

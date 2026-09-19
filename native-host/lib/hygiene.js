@@ -214,6 +214,25 @@ function pruneChromeCaches(profileDir) {
   }
 }
 
+function writeExitedCleanly(profileDir) {
+  if (!profileDir) return;
+  var localStatePath = path.join(profileDir, 'Local State');
+  var state = {};
+  try {
+    state = JSON.parse(fs.readFileSync(localStatePath, 'utf8')) || {};
+  } catch (_) {
+    state = {};
+  }
+  if (!state.profile || typeof state.profile !== 'object') state.profile = {};
+  state.profile.exited_cleanly = true;
+  state.profile.exit_type = 'Normal';
+  try {
+    fs.writeFileSync(localStatePath, JSON.stringify(state));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 /**
  * Drop tab-restore files so the next --kiosk-printing launch does not
  * reopen the previous job HTML and window.print() it again.
@@ -233,7 +252,9 @@ function resetChromeSession(profileDir) {
     rmRecursive(path.join(def, files[i]));
   }
   rmRecursive(path.join(def, 'Sessions'));
+  rmRecursive(path.join(def, 'Session Storage'));
   rmRecursive(path.join(profileDir, 'Crashpad'));
+  writeExitedCleanly(profileDir);
 }
 
 function chromeLockPresent(profileDir) {
@@ -264,6 +285,7 @@ module.exports = {
   chromeProfilePath: chromeProfilePath,
   pruneChromeCaches: pruneChromeCaches,
   resetChromeSession: resetChromeSession,
+  writeExitedCleanly: writeExitedCleanly,
   chromeLockPresent: chromeLockPresent,
   CHROME_PROFILE_DIRS: CHROME_PROFILE_DIRS,
 };

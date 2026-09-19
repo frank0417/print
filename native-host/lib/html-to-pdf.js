@@ -489,6 +489,14 @@ function htmlFileToPdfSync(htmlPath, pdfPath) {
       : 'file://' + htmlPath;
 
   const profileDir = path.join(os.tmpdir(), 'printkit-chrome-profile');
+  try {
+    const hygiene = require('./hygiene');
+    hygiene.killByUserDataDir(profileDir);
+    hygiene.resetChromeSession(profileDir);
+    hygiene.pruneChromeCaches(profileDir);
+  } catch (_) {
+    /* ignore */
+  }
   fs.mkdirSync(profileDir, { recursive: true });
 
   const args = [
@@ -508,6 +516,8 @@ function htmlFileToPdfSync(htmlPath, pdfPath) {
     '--no-pings',
     '--hide-scrollbars',
     '--allow-file-access-from-files',
+    '--disable-session-crashed-bubble',
+    '--disable-restore-session-state',
     // Sharper PDF text/fonts on Windows 7 Chrome
     '--font-render-hinting=none',
     '--run-all-compositor-stages-before-draw',
