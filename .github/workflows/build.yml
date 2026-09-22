@@ -56,9 +56,9 @@ jobs:
           - runner: macos-14          # Apple Silicon — native arm64
             arch: arm64
             macports_pkg: MacPorts-2.12.6-14-Sonoma.pkg
-          - runner: macos-13          # Intel
+          - runner: macos-15-intel    # Intel (macos-13 runners are retired/starved)
             arch: x86_64
-            macports_pkg: MacPorts-2.12.6-13-Ventura.pkg
+            macports_pkg: MacPorts-2.12.6-15-Sequoia.pkg
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
