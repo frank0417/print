@@ -53,6 +53,28 @@ cmake --build build -j
 
 qmake 亦可：`qmake && make`。
 
+### macOS（原生 arm64 / x86_64）
+
+QtWebKit 用 MacPorts 装——它有 **Apple Silicon 原生 arm64 的预编译包**
+（darwin_21…25，覆盖 macOS 12–15+），无需 1–2 小时的 WebKit 源码编译，
+也无需 Rosetta：
+
+```bash
+sudo port -N install qt5-qtwebkit     # arm64/x86_64 二进制包
+./scripts/build-mac.sh --package      # 构建 + 核心测试 + 自包含 .app
+./scripts/install-mac.sh build-mac/printkit-host   # 注册到 Chrome
+```
+
+`--package` 会用 macdeployqt 把 Qt/QtWebKit framework 打进
+`PrintKit-Host.app`（QWebPage 是单进程 WebKit1，没有辅助进程要带），
+产出 `PrintKit-Host-macos-<arch>.zip`；manifest 指向
+`PrintKit-Host.app/Contents/MacOS/printkit-host` 即可。
+
+CI（`.github/workflows/build.yml`）在 GitHub 的 **macos-14（Apple Silicon）**
+与 macos-13（Intel）真机上分别原生构建、跑测试、出 PDF 校验并上传两个
+架构的 .app 产物。分发给最终用户前还需 Developer ID 签名 + 公证
+（或安装脚本里去 quarantine），否则 Gatekeeper 会拦下 Chrome 拉起宿主。
+
 Windows：安装含 qtwebkit 的 Qt 5.x（如 Qt 5.14/5.15 + [qtwebkit 5.212 二进制](https://github.com/qtwebkit/qtwebkit/releases)），
 用 `qmake printkit-host.pro && nmake`（MSVC）或 `mingw32-make`。
 
