@@ -78,8 +78,9 @@ jobs:
           sudo installer -pkg macports.pkg -target /
           export PATH=/opt/local/bin:$PATH
           sudo port -N selfupdate || sudo port -N sync
-          # qt5-qtwebkit has binary archives for arm64 and x86_64 — no source build
-          sudo port -N install qt5-qtwebkit
+          # qt5-qtwebkit has binary archives for arm64 and x86_64 — no source build.
+          # qt5-qttools provides macdeployqt for packaging.
+          sudo port -N install qt5-qtwebkit qt5-qttools
 
       - name: Build native ${{ matrix.arch }} host
         run: |

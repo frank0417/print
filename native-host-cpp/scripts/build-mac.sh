@@ -62,7 +62,15 @@ if [ "${1:-}" = "--package" ]; then
 </dict></plist>
 PLIST
   cp "$BIN" "$APP/Contents/MacOS/printkit-host"
-  "$QT_PREFIX/bin/macdeployqt" "$APP" -verbose=1
+  MACDEPLOYQT="$QT_PREFIX/bin/macdeployqt"
+  if [ ! -x "$MACDEPLOYQT" ]; then
+    MACDEPLOYQT="$(command -v macdeployqt || true)"
+  fi
+  if [ -z "$MACDEPLOYQT" ]; then
+    echo "macdeployqt not found — install it with:  sudo port -N install qt5-qttools" >&2
+    exit 1
+  fi
+  "$MACDEPLOYQT" "$APP" -verbose=1
   # Native messaging manifest points INTO the bundle:
   #   .../PrintKit-Host.app/Contents/MacOS/printkit-host
   ( cd "$BUILD" && zip -qry "PrintKit-Host-macos-$ARCH.zip" "PrintKit-Host.app" )
