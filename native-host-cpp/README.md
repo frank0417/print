@@ -75,8 +75,33 @@ CI（`.github/workflows/build.yml`）在 GitHub 的 **macos-14（Apple Silicon�
 架构的 .app 产物。分发给最终用户前还需 Developer ID 签名 + 公证
 （或安装脚本里去 quarantine），否则 Gatekeeper 会拦下 Chrome 拉起宿主。
 
-Windows：安装含 qtwebkit 的 Qt 5.x（如 Qt 5.14/5.15 + [qtwebkit 5.212 二进制](https://github.com/qtwebkit/qtwebkit/releases)），
-用 `qmake printkit-host.pro && nmake`（MSVC）或 `mingw32-make`。
+### Windows（Linux 上交叉编译 + 一键 exe 安装包）
+
+MXE 提供预编译的 MinGW 交叉 Qt 5.15 + QtWebKit，可直接在 Linux 上出
+Windows exe（无需 Windows 构建机、**安装包不含 Node**）：
+
+```bash
+# 一次性装工具链（Ubuntu）
+curl -fsSL https://pkg.mxe.cc/repos/apt/client-conf/mxeapt.gpg | sudo gpg --dearmor -o /usr/share/keyrings/mxeapt.gpg
+echo "deb [signed-by=/usr/share/keyrings/mxeapt.gpg] https://pkg.mxe.cc/repos/apt focal main" | sudo tee /etc/apt/sources.list.d/mxeapt.list
+sudo apt-get update && sudo apt-get install mxe-x86-64-w64-mingw32.shared-qtwebkit nsis
+
+./scripts/build-win.sh
+# dist/PrintKit-Native-Setup-windows.exe   一键安装（engine + extension + 注册表）
+# dist/PrintKit-Native-windows-x64.zip     便携版
+```
+
+安装器（NSIS，支持 `/S` 静默）：装到 `%LOCALAPPDATA%\PrintKit`，写
+`com.printkit.host` manifest 并注册 Chrome / Edge / Chromium 的 HKCU
+NativeMessagingHosts，含卸载器。装完后到 `chrome://extensions`
+加载 `%LOCALAPPDATA%\PrintKit\extension` 即可。
+
+已在 wine 下验证：`/S` 静默安装落盘与注册表正确；已装引擎
+`--cli ping`（`platform: windows, qt: 5.15.2`）、帧协议出 PDF
+（A5 横向 595×420 pt）、jobId 去重、IP-Sentinel 拒绝均通过。
+
+也可用 MSVC 原生构建：Qt 5.14/5.15 + [qtwebkit 5.212 二进制](https://github.com/qtwebkit/qtwebkit/releases)，
+`qmake printkit-host.pro && nmake`。
 
 ## 注册（host 名不变，扩展零改动）
 
