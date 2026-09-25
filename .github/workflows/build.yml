@@ -1,0 +1,116 @@
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: linux x86_64 (build + tests)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt5 + QtWebKit
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qtbase5-dev qt5-qmake libqt5webkit5-dev cmake g++
+
+      - name: Build C++ host
+        working-directory: native-host-cpp
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
+          cmake --build build -j"$(nproc)"
+
+      - name: C++ tests (core + render-loop)
+        working-directory: native-host-cpp/build
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --output-on-failure
+
+      - name: Host self test
+        working-directory: native-host-cpp/build
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ./printkit-host --cli ping
+
+      - name: Extension / Node tests
+        run: |
+          node native-host/test/div-map.test.js
+          node native-host/test/html-offset.test.js
+          node native-host/test/printer-offset.test.mjs
+          node native-host/test/hygiene.test.js
+
+      - name: Upload linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: printkit-host-linux-x86_64
+          path: native-host-cpp/build/printkit-host
+
+  macos:
+    name: macos ${{ matrix.arch }} (native build)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14          # Apple Silicon — native arm64
+            arch: arm64
+            macports_pkg: MacPorts-2.12.6-14-Sonoma.pkg
+          - runner: macos-15-intel    # Intel (macos-13 runners are retired/starved)
+            arch: x86_64
+            macports_pkg: MacPorts-2.12.6-15-Sequoia.pkg
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache MacPorts tree
+        id: cache-macports
+        uses: actions/cache@v4
+        with:
+          path: /opt/local
+          key: macports-2.12.6-qt5-qtwebkit-${{ matrix.runner }}-v1
+
+      - name: Install MacPorts + QtWebKit (prebuilt ${{ matrix.arch }})
+        if: steps.cache-macports.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o macports.pkg \
+            "https://github.com/macports/macports-base/releases/download/v2.12.6/${{ matrix.macports_pkg }}"
+          sudo installer -pkg macports.pkg -target /
+          export PATH=/opt/local/bin:$PATH
+          sudo port -N selfupdate || sudo port -N sync
+          # qt5-qtwebkit has binary archives for arm64 and x86_64 — no source build.
+          # qt5-qttools provides macdeployqt for packaging.
+          sudo port -N install qt5-qtwebkit qt5-qttools
+
+      - name: Build native ${{ matrix.arch }} host
+        run: |
+          export PATH=/opt/local/bin:$PATH
+          ./native-host-cpp/scripts/build-mac.sh --package
+
+      - name: Verify architecture + self test
+        env:
+          QT_QPA_PLATFORM: offscreen   # runner has no interactive WindowServer
+        run: |
+          BIN=native-host-cpp/build-mac/printkit-host
+          file "$BIN" | tee /dev/stderr | grep -q "${{ matrix.arch }}"
+          "$BIN" --cli ping
+          "$BIN" --cli getPrinters
+
+      - name: Paperless print verification (PDF)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          cat > /tmp/job.json <<'JSON'
+          {"payload":{"title":"ci","jobId":"ci_1","pages":[
+            {"id":"page1","html":"<div><h1>发票</h1><table border=1><tr><td>价税合计</td><td>¥318.00</td></tr></table></div>"},
+            {"id":"page2","html":"<div>副本</div>"}],
+            "settings":{"paperName":"A5","orientation":2,"marginTop":5,"marginRight":5,"marginBottom":5,"marginLeft":5,"offsetX":2,"offsetY":-1}}}
+          JSON
+          native-host-cpp/build-mac/printkit-host --cli print /tmp/job.json /tmp/out.pdf
+          test -s /tmp/out.pdf && echo "PDF ok: $(wc -c < /tmp/out.pdf) bytes"
+
+      - name: Upload app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintKit-Host-macos-${{ matrix.arch }}
+          path: native-host-cpp/build-mac/PrintKit-Host-macos-${{ matrix.arch }}.zip

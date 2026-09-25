@@ -1,8 +1,12 @@
 import { PAPER_PRESETS } from './paper.js';
+import { normalizeOffset, offsetForPrinter, applyPrinterOffset } from './offsets.js';
 
 export const PREFS_KEY = 'printkit.previewPrefs';
 export const TYPE_OVERRIDES_KEY = 'printkit.printerTypeOverrides';
+export const OFFSETS_KEY = 'printkit.printerOffsets';
 export const PRINTER_TYPE_VALUES = ['pin', 'laser', 'inkjet', 'virtual'];
+
+export { normalizeOffset, offsetForPrinter, applyPrinterOffset };
 
 export async function loadPreviewPrefs() {
   try {
@@ -66,6 +70,33 @@ export function applyPrinterTypeOverride(settings, overrides) {
   return out;
 }
 
+export async function loadPrinterOffsets() {
+  try {
+    const data = await chrome.storage.local.get(OFFSETS_KEY);
+    const raw = data[OFFSETS_KEY] || {};
+    const out = {};
+    for (const key of Object.keys(raw)) {
+      out[key] = normalizeOffset(raw[key]);
+    }
+    return out;
+  } catch (_) {
+    return {};
+  }
+}
+
+/** Persist mm offset for one printer. Empty name is stored as "__default__". */
+export async function savePrinterOffset(printerName, offset) {
+  const all = await loadPrinterOffsets();
+  const key = String(printerName || '') || '__default__';
+  all[key] = normalizeOffset(offset);
+  try {
+    await chrome.storage.local.set({ [OFFSETS_KEY]: all });
+  } catch (_) {
+    /* ignore */
+  }
+  return all;
+}
+
 function applyNamedPaper(out, paperName, overlay) {
   out.paperName = paperName;
   if (PAPER_PRESETS[paperName]) {
@@ -117,6 +148,8 @@ export function mergeWithSavedPrefs(jobSettings, overlay) {
   if (overlay.marginBottom != null) out.marginBottom = overlay.marginBottom;
   if (overlay.marginLeft != null) out.marginLeft = overlay.marginLeft;
   if (overlay.contentScale != null) out.contentScale = overlay.contentScale;
+  if (overlay.backgroundFit != null) out.backgroundFit = overlay.backgroundFit;
+  if (overlay.backgroundOpacity != null) out.backgroundOpacity = overlay.backgroundOpacity;
 
   return out;
 }

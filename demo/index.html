@@ -115,11 +115,11 @@
   <body>
     <div class="wrap">
       <header>
-        <h1>PrintKit Demo</h1>
+        <h1>PrintKit · DIV ID 映射打印</h1>
         <p>
-          用法对齐经典 <strong>jatoolsPrinter</strong>：用连续的
-          <code>page1</code>、<code>page2</code>… DIV 作为打印页，调用
-          <code>printPreview</code> / <code>print</code>。
+          独创 <strong>DIV ID 映射打印</strong>：你的 HTML 就是模板。
+          用连续的 <code>page1</code>、<code>page2</code>… 锁定 DOM 节点直接出纸，
+          无需转换私有格式，也无需再学一套设计器。页面长什么样，纸上就是什么样。
         </p>
       </header>
 
@@ -139,7 +139,8 @@
         <button type="button" onclick="doPrint('dialog')">预览后打印</button>
         <button type="button" onclick="doPrint('direct')">静默打印（本地代理）</button>
         <button type="button" onclick="refreshPrinters()">刷新打印机</button>
-        <a href="./ticket.html"><button type="button">套打票据示例 →</button></a>
+        <a href="./ticket.html"><button type="button">套打票据（现场调偏移）→</button></a>
+        <a href="./invoice.html"><button type="button">电子发票映射 →</button></a>
       </div>
 
       <div class="pages">
@@ -166,7 +167,7 @@
           <h2>销售出库单（续）</h2>
           <div class="meta">单号 SO-20260818-001 · 备注页</div>
           <p>1. 请核对品名规格后签收。</p>
-          <p>2. 本页演示多页连续打印：扩展会按 page1、page2 顺序输出。</p>
+          <p>2. 本页由 id="page2" 映射为第 2 张：扩展按 page1、page2 顺序锁定 DOM 出纸。</p>
           <div class="footer">
             <span>第 2 页</span>
             <span>仓库：A-03</span>
