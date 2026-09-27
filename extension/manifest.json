@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "PrintKit（jatools 兼容打印）",
-  "version": "0.5.30",
-  "description": "Chrome 网页精确打印扩展：对齐 jatoolsPrinter，支持 Windows/macOS 一键安装本地打印代理静默打印。",
+  "name": "PrintKit（DIV ID 映射打印）",
+  "version": "0.6.0",
+  "description": "独创 DIV ID 映射打印：HTML 即模板，锁定指定 DOM 节点出纸。预览即打印，套打偏移按打印机记忆。",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -37,6 +37,7 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "lib/div-map.js",
         "page/inject.js",
         "preview/preview.html",
         "preview/preview.css",

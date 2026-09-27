@@ -17,15 +17,20 @@ function attachPort(port) {
     // Host may reply without id for simple request/response (1:1).
     // We use requestId correlation when present.
     const id = msg?.requestId;
-    if (id && waiters.has(id)) {
-      const { resolve, reject, timer } = waiters.get(id);
-      waiters.delete(id);
-      clearTimeout(timer);
-      if (msg.ok === false) reject(new Error(msg.error || 'Native host error'));
-      else resolve(msg);
+    if (id) {
+      const waiter = waiters.get(id);
+      if (waiter) {
+        waiters.delete(id);
+        clearTimeout(waiter.timer);
+        if (msg.ok === false) waiter.reject(new Error(msg.error || 'Native host error'));
+        else waiter.resolve(msg);
+      }
+      // A reply whose waiter already timed out is stale. Never hand it to a
+      // DIFFERENT waiter: a late "print ok" resolving the next print request
+      // would mark the new job as done without printing → 用户重打 → 重复出纸.
       return;
     }
-    // Fallback: resolve oldest waiter (stdio is strictly sequential in our host loop)
+    // Id-less reply: resolve oldest waiter (host loop is strictly sequential).
     const first = waiters.keys().next().value;
     if (first != null) {
       const { resolve, reject, timer } = waiters.get(first);

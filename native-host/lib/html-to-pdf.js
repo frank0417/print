@@ -278,9 +278,17 @@ function contentScale(settings) {
   return Math.min(200, Math.max(50, Math.round(n))) / 100;
 }
 
+function printOffset(settings) {
+  const s = settings || {};
+  const x = num(s.offsetX != null ? s.offsetX : s.offsetLeft, 0);
+  const y = num(s.offsetY != null ? s.offsetY : s.offsetTop, 0);
+  return { x: x, y: y };
+}
+
 function buildHtmlDocument({ title, pages, stylesheets, settings }) {
   const paper = resolvePaper(settings);
   const scale = contentScale(settings);
+  const offset = printOffset(settings);
   const styleTags = [];
   for (const sheet of stylesheets || []) {
     if (sheet.type === 'style' && sheet.css) {
@@ -353,13 +361,36 @@ function buildHtmlDocument({ title, pages, stylesheets, settings }) {
     .pk-fit {
       width: 100%;
       margin: 0;
-      transform: none;
+      transform: translate(${offset.x}mm, ${offset.y}mm);
       zoom: ${scale};
     }
     img, canvas, svg {
       image-rendering: -webkit-optimize-contrast;
       image-rendering: crisp-edges;
       max-width: 100%;
+    }
+    ${
+      settings && settings.printBackground && settings.backgroundImage
+        ? `.pk-page::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: url(${JSON.stringify(String(settings.backgroundImage))});
+      background-repeat: no-repeat;
+      background-position: center top;
+      background-size: ${
+        settings.backgroundFit === 'width'
+          ? '100% auto'
+          : settings.backgroundFit === 'height'
+            ? 'auto 100%'
+            : '100% 100%'
+      };
+      opacity: ${Math.max(5, Math.min(100, Number(settings.backgroundOpacity) || 35)) / 100};
+      pointer-events: none;
+      z-index: 0;
+    }
+    .pk-fit { position: relative; z-index: 1; }`
+        : ''
     }
     @media print {
       html, body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -585,6 +616,7 @@ module.exports = {
   pinUnprintable,
   isPinSheetName,
   matchPinSheet,
+  printOffset,
   PAPER_PRESETS,
 };
 

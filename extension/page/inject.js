@@ -1,9 +1,10 @@
 /**
  * Page-world API aligned with classic jatoolsPrinter.
- * Injected into every page so business code can call:
+ * Core protocol: DIV ID 映射打印 — HTML 即模板，锁定 pageN（或自定义 id）直接出纸。
+ *
  *   jatoolsPrinter.printPreview(myDoc)
  *   jatoolsPrinter.print(myDoc, showDialog)
- *   getJCP().printPreview(myDoc)  /  getJCP().then(jcp => jcp.printPreview(myDoc))
+ *   getJCP().printPreview(myDoc)
  */
 (function injectPrintKit() {
   if (window.__printKitInjected) return;
@@ -11,6 +12,7 @@
 
   const SOURCE = 'printkit-page';
   const REPLY = 'printkit-page-reply';
+  const DivMap = window.PrintKitDivMap;
   let seq = 0;
   const pending = new Map();
 
@@ -40,30 +42,91 @@
     });
   }
 
-  function collectPageElements(root, prefix = '') {
-    const doc = root?.nodeType === 9 ? root : root?.ownerDocument || document;
+  function ownerDoc(root) {
+    if (!root) return document;
+    if (root.nodeType === 9) return root;
+    return root.ownerDocument || document;
+  }
+
+  function snapshotPage(rec, doc) {
+    if (rec.html != null && !rec.node) {
+      return {
+        index: rec.index,
+        id: rec.id || `page${rec.index}`,
+        html: rec.html,
+        width: rec.width || null,
+        height: rec.height || null,
+      };
+    }
+    const el = rec.node;
+    const snap = DivMap
+      ? DivMap.capturePageSnapshot(el, doc)
+      : {
+          html: el ? el.outerHTML : rec.html || '',
+          width: el ? Math.max(el.offsetWidth || 0, el.scrollWidth || 0) : null,
+          height: el ? Math.max(el.offsetHeight || 0, el.scrollHeight || 0) : null,
+        };
+    return {
+      index: rec.index,
+      id: rec.id || (el && el.id) || `page${rec.index}`,
+      html: snap.html,
+      width: snap.width,
+      height: snap.height,
+    };
+  }
+
+  function collectPages(myDoc) {
+    const root = myDoc.documents || document;
+    const doc = ownerDoc(root);
+    if (DivMap) {
+      const mapped = DivMap.collectMappedPages(myDoc, root);
+      if (!mapped.length) {
+        throw new Error(DivMap.missingPageError(myDoc));
+      }
+      return {
+        pages: mapped.map((rec) => snapshotPage(rec, doc)),
+        stylesheets: DivMap.collectStylesheets(doc),
+        doc,
+      };
+    }
+
+    // Fallback if div-map.js failed to inject.
+    const prefix = myDoc.page_div_prefix || myDoc.pageDivPrefix || myDoc.pagePrefix || '';
     const pages = [];
     let i = 1;
     while (i <= 500) {
       const id = `${prefix}page${i}`;
       const el = doc.getElementById(id);
       if (!el) break;
-      pages.push(el);
+      pages.push({
+        index: i,
+        id: el.id || id,
+        html: el.outerHTML,
+        width: Math.max(el.offsetWidth || 0, el.scrollWidth || 0) || null,
+        height: Math.max(el.offsetHeight || 0, el.scrollHeight || 0) || null,
+      });
       i += 1;
     }
-    return pages;
-  }
-
-  function collectStylesheets(doc) {
+    if (!pages.length && root && root.nodeType === 1) {
+      pages.push({
+        index: 1,
+        id: root.id || 'page1',
+        html: root.outerHTML,
+        width: Math.max(root.offsetWidth || 0, root.scrollWidth || 0) || null,
+        height: Math.max(root.offsetHeight || 0, root.scrollHeight || 0) || null,
+      });
+    }
+    if (!pages.length) {
+      throw new Error(
+        `PrintKit: 未找到可打印页。请放置 id 为 "${prefix}page1"、"${prefix}page2"... 的元素`
+      );
+    }
     const sheets = [];
     for (const node of Array.from(doc.querySelectorAll('link[rel="stylesheet"], style'))) {
-      if (node.tagName === 'LINK' && node.href) {
-        sheets.push({ type: 'link', href: node.href });
-      } else if (node.tagName === 'STYLE') {
-        sheets.push({ type: 'style', css: node.textContent || '' });
-      }
+      if (node.tagName === 'LINK' && node.href) sheets.push({ type: 'link', href: node.href });
+      else if (node.tagName === 'STYLE') sheets.push({ type: 'style', css: node.textContent || '' });
     }
-    return sheets;
+    return { pages, stylesheets: sheets, doc };
   }
 
   function normalizeDoc(myDoc = {}) {
@@ -72,64 +135,28 @@
     }
 
     const settings = { ...(myDoc.settings || {}) };
-    const prefix =
-      myDoc.page_div_prefix || myDoc.pageDivPrefix || myDoc.pagePrefix || '';
-    let pagesHtml = [];
-    let stylesheets = [];
-    let title = myDoc.title || document.title || '打印文档';
+    const title = myDoc.title || document.title || '打印文档';
+    const { pages, stylesheets } = collectPages(myDoc);
 
-    if (typeof myDoc.documents === 'string') {
-      // HTML string document
-      pagesHtml = [{ index: 1, id: 'page1', html: myDoc.documents }];
-    } else if (Array.isArray(myDoc.documents)) {
-      pagesHtml = myDoc.documents.map((item, i) => {
-        if (typeof item === 'string') {
-          return { index: i + 1, id: `page${i + 1}`, html: item };
-        }
-        if (item && item.nodeType === 1) {
-          return { index: i + 1, id: item.id || `page${i + 1}`, html: item.outerHTML };
-        }
-        return { index: i + 1, id: `page${i + 1}`, html: String(item ?? '') };
-      });
-    } else {
-      const root = myDoc.documents || document;
-      const doc = root.nodeType === 9 ? root : root.ownerDocument || document;
-      stylesheets = collectStylesheets(doc);
-
-      let pageEls = collectPageElements(doc, prefix);
-      if (!pageEls.length && root.nodeType === 1) {
-        pageEls = [root];
-      }
-      if (!pageEls.length) {
-        throw new Error(
-          `PrintKit: 未找到可打印页。请放置 id 为 "${prefix}page1"、"${prefix}page2"... 的元素`
-        );
-      }
-      pagesHtml = pageEls.map((el, index) => ({
-        index: index + 1,
-        id: el.id || `page${index + 1}`,
-        html: el.outerHTML,
-        width: Math.max(el.offsetWidth || 0, el.scrollWidth || 0) || null,
-        height: Math.max(el.offsetHeight || 0, el.scrollHeight || 0) || null,
-      }));
-    }
+    const mappedIds = pages.map((p) => p.id);
+    settings.divMap = {
+      prefix: myDoc.page_div_prefix || myDoc.pageDivPrefix || myDoc.pagePrefix || '',
+      ids: mappedIds,
+      mode: 'div-id',
+    };
 
     // Infer label/paper size from the first page box (px → mm @96dpi).
-    // Defaulting to A4 then "fit to" a 100×180mm waybill printer is the #1 blur cause.
     const hasCustomSize =
       settings.pageWidth != null ||
       settings.pageHeight != null ||
       settings.width != null ||
       settings.height != null;
-    const first = pagesHtml[0];
+    const first = pages[0];
     if (!hasCustomSize && first && first.width > 40 && first.height > 40) {
       const mm = (px) => Math.round(((Number(px) * 25.4) / 96) * 100) / 100;
       settings.pageWidth = mm(first.width);
       settings.pageHeight = mm(first.height);
-      // Always Custom — keeping paperName=A4 while the box is 241×93 makes
-      // the host send A4-landscape and rotate pin-feed tickets 90°.
       settings.paperName = 'Custom';
-      // Auto landscape when the page box is wider than tall (common for waybills)
       if (settings.orientation == null && settings.pageWidth > settings.pageHeight) {
         settings.orientation = 2;
       }
@@ -150,16 +177,19 @@
       }
     }
 
-    // Overlay / 套打底图：仅预览可见
     const overlay = myDoc.dragables || myDoc.overlay || null;
+    if (myDoc.backgroundImage && !settings.backgroundImage) {
+      settings.backgroundImage = myDoc.backgroundImage;
+    }
 
     return {
       title,
       copyrights: myDoc.copyrights || '',
       settings,
-      pages: pagesHtml,
+      pages,
       stylesheets,
       overlay,
+      mappedIds,
       doneName: typeof myDoc.done === 'function' ? true : false,
       sourceUrl: location.href,
     };
@@ -167,7 +197,7 @@
 
   async function runPrint(myDoc, mode, showDialog) {
     const payload = normalizeDoc(myDoc);
-    payload.mode = mode; // 'preview' | 'print'
+    payload.mode = mode;
     payload.showDialog = !!showDialog;
 
     try {
@@ -222,10 +252,22 @@
       return runPrint(myDoc, 'print', showDialog !== false);
     },
 
-    /** 列出本机打印机（需安装 native-host；未安装会提示） */
+    /**
+     * 列出当前页已被 DIV ID 映射到的打印节点（不触发打印）。
+     * 便于业务自检：页面长什么样，纸上就是什么样。
+     */
+    listMappedPages(myDoc = {}) {
+      const { pages } = collectPages({ ...myDoc, documents: myDoc.documents || document });
+      return pages.map((p) => ({
+        index: p.index,
+        id: p.id,
+        width: p.width,
+        height: p.height,
+      }));
+    },
+
     async getPrinters(options = {}) {
       const result = await callExtension('GET_PRINTERS', {});
-      // bridge may return array (legacy) or object
       if (Array.isArray(result)) return result;
       if (result?.hostAvailable === false) {
         if (options.promptInstall !== false) {
@@ -250,12 +292,10 @@
       }
     },
 
-    /** 探测本地打印代理是否可用 */
     async getHostStatus() {
       return callExtension('GET_HOST_STATUS', {});
     },
 
-    /** 打开安装说明窗口 */
     async openInstallGuide(reason) {
       return callExtension('OPEN_INSTALL_GUIDE', {
         reason: reason || '请安装 PrintKit 本地打印代理',
@@ -266,21 +306,14 @@
       return true;
     },
 
-    version: '0.3.0',
+    version: '0.6.0',
+    engine: 'div-id-map',
   };
 
-  // Classic global
   window.jatoolsPrinter = api;
-  // Alias for newer naming / project brand
   window.printKit = api;
   window.PrintKit = api;
 
-  /**
-   * Dual-compat getter. Must be a plain object (not a Promise instance):
-   *   getJCP().printPreview(myDoc)           — classic JSP / jcpfree.js
-   *   getJCP().then(jcp => jcp.printPreview) — Promise style
-   * Extra properties on native Promise are stripped by .then / Promise.resolve.
-   */
   function wrapJcp(apiObj) {
     const wrapped = {
       printPreview(myDoc, _progress) {
@@ -301,10 +334,14 @@
       openInstallGuide(reason) {
         return apiObj.openInstallGuide(reason);
       },
+      listMappedPages(myDoc) {
+        return apiObj.listMappedPages(myDoc);
+      },
       isInstalled() {
         return apiObj.isInstalled ? apiObj.isInstalled() : true;
       },
       version: apiObj.version,
+      engine: apiObj.engine,
       then(resolve, reject) {
         return Promise.resolve(apiObj).then(resolve, reject);
       },
@@ -321,5 +358,7 @@
   window.getJatoolsPrinter = window.getJCP;
   window.declareJatoolsPrinter = function declareJatoolsPrinter() {};
 
-  window.dispatchEvent(new CustomEvent('printkit-ready', { detail: { version: api.version } }));
+  window.dispatchEvent(
+    new CustomEvent('printkit-ready', { detail: { version: api.version, engine: api.engine } })
+  );
 })();

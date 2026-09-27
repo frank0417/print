@@ -5,18 +5,25 @@
   const PAGE_SOURCE = 'printkit-page';
   const PAGE_REPLY = 'printkit-page-reply';
 
+  function injectScript(src, next) {
+    const s = document.createElement('script');
+    s.src = chrome.runtime.getURL(src);
+    s.async = false;
+    s.dataset.printkit = '1';
+    s.onload = () => {
+      s.remove();
+      if (typeof next === 'function') next();
+    };
+    s.onerror = () => {
+      s.remove();
+      if (typeof next === 'function') next();
+    };
+    (document.documentElement || document.head || document).appendChild(s);
+  }
+
   function injectPageScript() {
     try {
-      const src = chrome.runtime.getURL('page/inject.js');
-      const script = document.documentElement
-        ? document.documentElement.ownerDocument.createElement('script')
-        : null;
-      const s = document.createElement('script');
-      s.src = src;
-      s.async = false;
-      s.dataset.printkit = '1';
-      (document.documentElement || document.head || document).appendChild(s);
-      s.onload = () => s.remove();
+      injectScript('lib/div-map.js', () => injectScript('page/inject.js'));
     } catch (err) {
       console.warn('[PrintKit] inject failed', err);
     }

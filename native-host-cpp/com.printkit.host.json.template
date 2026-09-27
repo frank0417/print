@@ -1,0 +1,9 @@
+{
+  "name": "com.printkit.host",
+  "description": "PrintKit C++ native print host (QtWebKit + QPrinter)",
+  "path": "__HOST_PATH__",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://memmopnlapcegennpipheiadaonehljd/"
+  ]
+}
